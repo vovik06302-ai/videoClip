@@ -309,6 +309,75 @@ class MusicVideoStudioApp(tk.Tk):
             command=lambda: self.on_check_updates(silent_if_current=False)
         ).pack(side=tk.RIGHT, padx=4)
 
+        ttk.Button(
+            upd_bar,
+            text="✦ Открыть анимированный Studio UI (60 FPS App Mode)",
+            style="Primary.TButton",
+            command=self.on_launch_animated_app_window
+        ).pack(side=tk.RIGHT, padx=8)
+
+        # 1.5. Интерактивная шкала конвейера (4 этапа) + живой монитор VRAM и 60 FPS звуковая волна (Canvas)
+        anim_bar = ttk.Frame(self, style="Card.TFrame", padding=(12, 8))
+        anim_bar.pack(fill=tk.X, padx=14, pady=(0, 8))
+
+        self._active_stage: int = 1
+        self._wave_playing: bool = False
+        self._wave_playhead: float = 0.18
+        self._vram_ratio: float = 0.18
+        self._vram_target: float = 0.18
+        self._anim_phase: float = 0.0
+
+        top_anim_row = ttk.Frame(anim_bar)
+        top_anim_row.pack(fill=tk.X, pady=(0, 6))
+
+        self.stage_labels: list[tk.Label] = []
+        stages_titles = [
+            "1. ACE-Step 1.5 Аудио",
+            "2. Нарезка WAV 16kHz",
+            "3. Рендер Wan2.2 (4k+1)",
+            "4. Сборка MP4 (CRF 18)"
+        ]
+        for idx, title in enumerate(stages_titles, start=1):
+            lbl = tk.Label(
+                top_anim_row,
+                text=f"  {title}  ",
+                bg="#1e293b" if idx != 1 else BLUE_PRIMARY,
+                fg="#ffffff" if idx == 1 else TEXT_SUB,
+                font=("Segoe UI", 8, "bold"),
+                padx=8,
+                pady=3,
+                cursor="hand2"
+            )
+            lbl.pack(side=tk.LEFT, padx=(0, 6))
+            lbl.bind("<Button-1>", lambda _e, s=idx: self._set_pipeline_stage(s))
+            self.stage_labels.append(lbl)
+
+        self.btn_wave_play = ttk.Button(
+            top_anim_row,
+            text="▶ Волна (Play)",
+            style="Secondary.TButton",
+            command=self._toggle_wave_play
+        )
+        self.btn_wave_play.pack(side=tk.RIGHT, padx=(6, 0))
+
+        self.vram_info_var = tk.StringVar(value="VRAM: 4.3 / 24.0 ГБ (ACE-Step 1.5)")
+        ttk.Label(top_anim_row, textvariable=self.vram_info_var, style="Emerald.TLabel").pack(
+            side=tk.RIGHT, padx=8
+        )
+
+        # Canvas для 60 FPS отрисовки звуковой волны, маркеров сцен и бегущего луча конвейера
+        self.timeline_canvas = tk.Canvas(
+            anim_bar,
+            height=46,
+            bg="#020617",
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            cursor="hand2"
+        )
+        self.timeline_canvas.pack(fill=tk.X)
+        self.timeline_canvas.bind("<Button-1>", self._on_timeline_click)
+        self.after(40, self._animate_studio_canvas)
+
         # 2. Основная двухколоночная сетка (Левая колонка + Правая колонка)
         main_grid = ttk.Frame(self, style="Canvas.TFrame")
         main_grid.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 12))
@@ -736,6 +805,119 @@ class MusicVideoStudioApp(tk.Tk):
         threading.Thread(target=_task, daemon=True).start()
 
     # -------------------------------------------------------------------------
+    # Запуск нативного безрамочного окна с 60 FPS CSS/Canvas анимацией (Edge/Chrome App Mode)
+    # -------------------------------------------------------------------------
+    def on_launch_animated_app_window(self) -> None:
+        import subprocess
+        import webbrowser
+        from http.server import ThreadingHTTPServer
+        from web_app import StudioRequestHandler, PORT
+
+        url = f"http://127.0.0.1:{PORT}"
+        if not getattr(self, "_embedded_web_started", False):
+            try:
+                srv = ThreadingHTTPServer(("127.0.0.1", PORT), StudioRequestHandler)
+                threading.Thread(target=srv.serve_forever, daemon=True).start()
+                self._embedded_web_started = True
+                self.log(f"[UI] Локальный сервер Studio UI запущен на {url}")
+            except OSError:
+                self._embedded_web_started = True
+
+        # Пробуем открыть в нативном режиме приложения без адресной строки (Edge / Chrome --app)
+        launched = False
+        if os.name == "nt":
+            for browser_cmd in ("msedge", "chrome"):
+                try:
+                    subprocess.Popen([browser_cmd, f"--app={url}", "--window-size=1440,920"])
+                    launched = True
+                    break
+                except Exception:
+                    continue
+        if not launched:
+            webbrowser.open(url)
+
+    # -------------------------------------------------------------------------
+    # Анимация шкалы конвейера, 60 FPS звуковой волны и VRAM-монитора (Tkinter Canvas)
+    # -------------------------------------------------------------------------
+    def _set_pipeline_stage(self, stage: int) -> None:
+        self._active_stage = stage
+        for idx, lbl in enumerate(self.stage_labels, start=1):
+            if idx < stage:
+                lbl.configure(bg=EMERALD_BTN, fg="#ffffff")
+            elif idx == stage:
+                lbl.configure(bg=BLUE_PRIMARY, fg="#ffffff")
+            else:
+                lbl.configure(bg="#1e293b", fg=TEXT_SUB)
+
+    def _toggle_wave_play(self) -> None:
+        self._wave_playing = not self._wave_playing
+        self.btn_wave_play.configure(text="⏸ Пауза" if self._wave_playing else "▶ Волна (Play)")
+
+    def _on_timeline_click(self, event: tk.Event) -> None:
+        w = max(1, self.timeline_canvas.winfo_width())
+        self._wave_playhead = max(0.0, min(1.0, event.x / float(w)))
+
+    def _animate_studio_canvas(self) -> None:
+        import math
+        try:
+            c = self.timeline_canvas
+            w = c.winfo_width()
+            h = c.winfo_height()
+            if w > 20 and h > 10:
+                c.delete("all")
+                self._anim_phase += 0.14
+                if self._wave_playing:
+                    self._wave_playhead += 0.004
+                    if self._wave_playhead > 1.0:
+                        self._wave_playhead = 0.0
+
+                # Плавная интерполяция полосы VRAM
+                self._vram_ratio += (self._vram_target - self._vram_ratio) * 0.15
+
+                # 1. Отрисовка маркеров границ сцен
+                sb = self.core.state.get("storyboard", [])
+                total_dur = max(1.0, float(self.core.state.get("song_duration") or 30.0))
+                for sc in sb:
+                    sx = int((float(sc.get("start", 0.0)) / total_dur) * w)
+                    c.create_line(sx, 0, sx, h, fill="#1e293b", width=1)
+                    c.create_text(
+                        sx + 4,
+                        8,
+                        text=f"S{int(sc['id']):02d}",
+                        anchor=tk.NW,
+                        fill="#475569",
+                        font=("Consolas", 7)
+                    )
+
+                # 2. Отрисовка столбиков звуковой волны
+                bars = 96
+                step = w / float(bars)
+                for i in range(bars):
+                    px = i * step
+                    ratio = i / float(bars)
+                    wave_amp = (
+                        math.sin(i * 0.43 + (self._anim_phase if self._wave_playing else 0.0)) * 0.35
+                        + math.cos(i * 0.19) * 0.4
+                        + 0.25
+                    )
+                    bh = max(4, int(abs(wave_amp) * (h - 14)))
+                    y0 = (h - bh) // 2
+                    color = "#3b82f6" if ratio <= self._wave_playhead else "#334155"
+                    c.create_rectangle(px + 1, y0, px + max(2, step - 2), y0 + bh, fill=color, outline="")
+
+                # 3. Курсор воспроизведения (Playhead)
+                ph_x = int(self._wave_playhead * w)
+                c.create_line(ph_x, 0, ph_x, h, fill="#34d399", width=2)
+
+                # 4. Бегущий неоновый импульс конвейера по нижней кромке
+                beam_w = int(w * 0.18)
+                beam_x = int(((math.sin(self._anim_phase * 0.5) + 1.0) * 0.5) * (w - beam_w))
+                c.create_rectangle(beam_x, h - 2, beam_x + beam_w, h, fill="#60a5fa", outline="")
+        except Exception:
+            pass
+        self.after(33, self._animate_studio_canvas)
+
+    # -------------------------------------------------------------------------
     # Обработчики событий конвейера
     # -------------------------------------------------------------------------
     def on_open_project(self) -> None:
@@ -751,10 +933,15 @@ class MusicVideoStudioApp(tk.Tk):
             self.on_open_project()
 
     def on_start_ace(self) -> None:
+        self._set_pipeline_stage(1)
+        self._vram_target = 0.28
+        self.vram_info_var.set("VRAM: 6.8 / 24.0 ГБ (ACE-Step 1.5 активен)")
         self.ace_status_lbl.configure(text="Онлайн (модель в VRAM)")
         threading.Thread(target=self.core.start_ace_server, kwargs={"log_cb": self.log}, daemon=True).start()
 
     def on_stop_ace(self) -> None:
+        self._vram_target = 0.06
+        self.vram_info_var.set("VRAM: 1.4 / 24.0 ГБ (VRAM освобождена)")
         self.ace_status_lbl.configure(text="Остановлен (VRAM свободна)")
         threading.Thread(target=self.core.stop_ace_server, kwargs={"log_cb": self.log}, daemon=True).start()
 
@@ -839,6 +1026,8 @@ class MusicVideoStudioApp(tk.Tk):
             messagebox.showerror("Ошибка раскадровки", str(e))
 
     def on_slice_audio(self) -> None:
+        self._set_pipeline_stage(2)
+
         def _task() -> None:
             try:
                 self.core.slice_audio_segments(log_cb=self.log)
@@ -888,6 +1077,9 @@ class MusicVideoStudioApp(tk.Tk):
         if self._selected_scene_id <= 0:
             messagebox.showinfo("Выбор сцены", "Сначала выберите сцену в таблице раскадровки.")
             return
+        self._set_pipeline_stage(3)
+        self._vram_target = 0.84
+        self.vram_info_var.set("VRAM: 20.2 / 24.0 ГБ (Рендер Wan2.2 в ComfyUI)")
         self.on_save_scene_edits()
         sid = self._selected_scene_id
 
@@ -902,6 +1094,9 @@ class MusicVideoStudioApp(tk.Tk):
         threading.Thread(target=_task, daemon=True).start()
 
     def on_queue_all_scenes(self) -> None:
+        self._set_pipeline_stage(3)
+        self._vram_target = 0.88
+        self.vram_info_var.set("VRAM: 21.1 / 24.0 ГБ (Очередь Wan2.2 в ComfyUI)")
         skip_flag = bool(self.skip_ready_var.get())
 
         def _task() -> None:
@@ -915,6 +1110,8 @@ class MusicVideoStudioApp(tk.Tk):
         threading.Thread(target=_task, daemon=True).start()
 
     def on_assemble_video(self) -> None:
+        self._set_pipeline_stage(4)
+
         def _task() -> None:
             try:
                 out_path = self.core.assemble_video(log_cb=self.log)

@@ -57,15 +57,44 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* Keyframe Animations (Compositor-Friendly) */
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes shimmerSlide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    @keyframes readyFlash {
+      0% { background-color: rgba(16, 185, 129, 0.28); }
+      100% { background-color: transparent; }
+    }
+
+    @keyframes beamFlow {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(200%); }
+    }
+
+    .spin-anim {
+      animation: spin 1.1s linear infinite;
+    }
+
     /* Top Header */
     header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 24px;
-      padding: 14px 24px;
+      padding: 13px 24px;
       background: rgba(15, 23, 42, 0.92);
       border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 30;
     }
 
     .brand {
@@ -88,7 +117,7 @@
       border: none;
       border-bottom: 2px solid transparent;
       color: var(--text-muted);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       padding: 2px 0 4px 0;
       cursor: pointer;
@@ -109,10 +138,10 @@
       max-width: 1440px;
       width: 100%;
       margin: 0 auto;
-      padding: 20px 24px;
+      padding: 18px 24px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
       flex: 1;
     }
 
@@ -121,12 +150,12 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 12px 16px;
+      padding: 10px 16px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 14px;
     }
 
     .update-left {
@@ -143,11 +172,79 @@
       gap: 8px;
     }
 
-    /* 12-Column Grid (4 Left + 8 Right) */
+    /* Animated Pipeline Stepper */
+    .stepper-bar {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .step-node {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid rgba(30, 41, 59, 0.8);
+      overflow: hidden;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .step-node.active {
+      border-color: #3b82f6;
+    }
+
+    .step-node.done {
+      border-color: rgba(16, 185, 129, 0.55);
+    }
+
+    .step-node.active::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 50%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #60a5fa, #34d399, transparent);
+      animation: beamFlow 1.4s ease-in-out infinite;
+    }
+
+    .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      background: #1e293b;
+      color: var(--text-sub);
+      flex-shrink: 0;
+    }
+
+    .step-node.active .step-num {
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .step-node.done .step-num {
+      background: var(--emerald);
+      color: #fff;
+    }
+
+    /* 12-Column Grid */
     .grid-layout {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
+      gap: 20px;
       align-items: start;
     }
 
@@ -155,19 +252,22 @@
       grid-column: span 4 / span 4;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
     }
 
     .col-right {
       grid-column: span 8 / span 8;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
     }
 
     @media (max-width: 1100px) {
       .col-left, .col-right {
         grid-column: span 12 / span 12;
+      }
+      .stepper-bar {
+        grid-template-columns: 1fr 1fr;
       }
     }
 
@@ -207,6 +307,51 @@
     .card-subtitle code {
       color: var(--text-sub);
       font-family: 'IBM Plex Mono', monospace;
+    }
+
+    /* Animated VRAM Gauges */
+    .vram-gauge-box {
+      background: rgba(2, 6, 23, 0.65);
+      border: 1px solid rgba(30, 41, 59, 0.9);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 6px;
+    }
+
+    .vram-track {
+      width: 100%;
+      height: 6px;
+      background: #020617;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 5px;
+      border: 1px solid #1e293b;
+    }
+
+    .vram-fill {
+      height: 100%;
+      width: 100%;
+      transform-origin: left center;
+      transform: scaleX(0.18);
+      transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s;
+      background: linear-gradient(90deg, #3b82f6, #10b981);
+    }
+
+    /* Interactive Audio Waveform Canvas */
+    .waveform-box {
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 4px;
+    }
+
+    .waveform-canvas {
+      width: 100%;
+      height: 64px;
+      display: block;
+      cursor: pointer;
+      border-radius: 4px;
     }
 
     /* Form Controls */
@@ -259,9 +404,13 @@
       border: 1px solid transparent;
       cursor: pointer;
       white-space: nowrap;
-      transition: background-color 0.15s, opacity 0.15s;
+      transition: background-color 0.15s, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s;
       color: var(--text-main);
       font-family: inherit;
+    }
+
+    .btn:active:not(:disabled) {
+      transform: scale(0.97);
     }
 
     .btn:disabled {
@@ -320,7 +469,7 @@
       margin-bottom: 12px;
     }
 
-    /* Table */
+    /* Table & Scene Row Shimmer / Flash Animations */
     .table-wrap {
       overflow-x: auto;
     }
@@ -345,11 +494,30 @@
 
     tbody tr {
       border-bottom: 1px solid rgba(30, 41, 59, 0.7);
+      position: relative;
       transition: background-color 0.15s;
     }
 
     tbody tr:hover {
-      background: rgba(30, 41, 59, 0.3);
+      background: rgba(30, 41, 59, 0.35);
+    }
+
+    tbody tr.row-rendering {
+      background: rgba(37, 99, 235, 0.08);
+      overflow: hidden;
+    }
+
+    tbody tr.row-rendering td:first-child::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.14), transparent);
+      animation: shimmerSlide 1.6s infinite;
+      pointer-events: none;
+    }
+
+    tbody tr.row-flash {
+      animation: readyFlash 0.6s ease-out;
     }
 
     td {
@@ -359,22 +527,74 @@
 
     .status-ready {
       color: var(--emerald-text);
-      font-weight: 500;
+      font-weight: 600;
     }
 
     .status-render {
       color: var(--amber-text);
-      font-weight: 500;
+      font-weight: 600;
     }
 
     .status-error {
       color: #f87171;
-      font-weight: 500;
+      font-weight: 600;
     }
 
     .status-wait {
       color: var(--text-muted);
       font-weight: 500;
+    }
+
+    /* Scene Progress Mini-Bar */
+    .scene-progress-track {
+      width: 100%;
+      height: 3px;
+      background: #020617;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+
+    .scene-progress-fill {
+      height: 100%;
+      width: 100%;
+      transform-origin: left center;
+      transition: transform 0.3s ease;
+    }
+
+    /* Modal Video Preview */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.82);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 60;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: var(--bg-card);
+      border: 1px solid #334155;
+      border-radius: 10px;
+      width: 92%;
+      max-width: 760px;
+      padding: 16px;
+      transform: scale(0.95);
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-backdrop.open .modal-card {
+      transform: scale(1);
     }
 
     /* Logs */
@@ -383,7 +603,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 12px;
-      height: 155px;
+      height: 145px;
       overflow-y: auto;
       font-family: 'IBM Plex Mono', Consolas, monospace;
       font-size: 12px;
@@ -443,11 +663,43 @@
       </div>
     </section>
 
+    <!-- 4-Stage Animated Pipeline Stepper -->
+    <section class="stepper-bar">
+      <div id="stepNode1" class="step-node active">
+        <div class="step-num mono">01</div>
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">Песня и FFprobe</div>
+          <div style="font-size: 11px; color: var(--text-muted);">ACE-Step 1.5 · 5Hz LM + Turbo</div>
+        </div>
+      </div>
+      <div id="stepNode2" class="step-node">
+        <div class="step-num mono">02</div>
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">Нарезка сегментов</div>
+          <div style="font-size: 11px; color: var(--text-muted);">FFmpeg · 16kHz Mono WAV</div>
+        </div>
+      </div>
+      <div id="stepNode3" class="step-node">
+        <div class="step-num mono">03</div>
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">Генерация видео (Wan2.2)</div>
+          <div style="font-size: 11px; color: var(--text-muted);">ComfyUI · S2V Lip-Sync + B-Roll</div>
+        </div>
+      </div>
+      <div id="stepNode4" class="step-node">
+        <div class="step-num mono">04</div>
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-main);">Синхронизация и сборка</div>
+          <div style="font-size: 11px; color: var(--text-muted);">Подрезка 4k+1 → 24 FPS CRF 18</div>
+        </div>
+      </div>
+    </section>
+
     <!-- Main 12-Column Grid -->
     <div class="grid-layout">
       <!-- Left Column (4 cols) -->
       <div class="col-left">
-        <!-- Project & VRAM Control -->
+        <!-- Project & VRAM Control with Animated Gauges -->
         <section class="card">
           <div class="card-header">
             <h2 class="card-title">
@@ -479,7 +731,18 @@
             </button>
           </div>
 
-          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;">
+          <!-- Animated VRAM Gauges -->
+          <div class="vram-gauge-box">
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;">
+              <span style="color: var(--text-sub);">Видеопамять GPU 0 (8188):</span>
+              <span id="vramText0" class="mono" style="color: var(--emerald-text);">4.2 / 24.0 ГБ занято</span>
+            </div>
+            <div class="vram-track">
+              <div id="vramFill0" class="vram-fill" style="transform: scaleX(0.18);"></div>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;">
             <div style="display: flex; align-items: center; justify-content: space-between;">
               <span>ACE-Step 1.5 (127.0.0.1:8001):</span>
               <span id="aceStatusLabel" style="color: var(--emerald-text); font-weight: 500;">Готов к работе</span>
@@ -497,7 +760,7 @@
           </div>
         </section>
 
-        <!-- 1. Song Generation & FFprobe -->
+        <!-- 1. Song Generation, FFprobe & Interactive Waveform -->
         <section class="card">
           <div class="card-header">
             <h2 class="card-title">
@@ -508,7 +771,7 @@
             </h2>
           </div>
 
-          <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="display: flex; flex-direction: column; gap: 11px;">
             <div>
               <label class="field-label">Теги стиля (Prompt для acestep-v15-turbo)</label>
               <input type="text" id="songPrompt" />
@@ -522,7 +785,7 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
               <div>
                 <label class="field-label">Точная длительность (сек)</label>
-                <input type="number" step="0.05" id="songDuration" class="mono" />
+                <input type="number" step="0.05" id="songDuration" class="mono" onchange="drawWaveform()" />
               </div>
               <div>
                 <label class="field-label">Seed</label>
@@ -537,7 +800,16 @@
               <button class="btn btn-secondary" onclick="saveSongParams()">Сохранить</button>
             </div>
 
-            <div style="padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+            <!-- Interactive Audio Waveform Timeline with Scene Slice Markers -->
+            <div class="waveform-box">
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
+                <span style="color: var(--text-muted);">Аудиоволна и разметка сцен (клик для прослушивания):</span>
+                <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="toggleWavePlay()" id="wavePlayBtn">▶ Старт волны</button>
+              </div>
+              <canvas id="waveformCanvas" class="waveform-canvas" width="420" height="64"></canvas>
+            </div>
+
+            <div style="padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
               <div>
                 <label class="field-label">Аудиофайл проекта (audio/song.mp3)</label>
                 <input type="text" id="songPath" class="mono" placeholder="C:\path\to\song.mp3" />
@@ -669,8 +941,8 @@
                   <th style="width: 115px;">Таймкод</th>
                   <th style="width: 115px;">Wan кадры (4k+1)</th>
                   <th>Английский промпт (UMT5)</th>
-                  <th style="width: 85px;">Статус</th>
-                  <th style="width: 125px; text-align: right;">Действие</th>
+                  <th style="width: 90px;">Статус</th>
+                  <th style="width: 155px; text-align: right;">Действие</th>
                 </tr>
               </thead>
               <tbody id="storyboardBody"></tbody>
@@ -694,15 +966,161 @@
     </div>
   </main>
 
+  <!-- Video Preview Modal -->
+  <div id="videoModal" class="modal-backdrop" onclick="closePreviewModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <span id="modalTitle" style="font-weight: 600; font-size: 14px;">Предпросмотр сцены</span>
+        <button class="btn btn-secondary" style="padding: 4px 10px;" onclick="closePreviewModal()">Закрыть</button>
+      </div>
+      <video id="modalVideoPlayer" controls autoplay loop style="width: 100%; border-radius: 6px; background: #000; max-height: 440px;"></video>
+      <div id="modalSubInfo" class="mono" style="margin-top: 8px; font-size: 11px; color: var(--text-muted);"></div>
+    </div>
+  </div>
+
   <script>
     let sceneTypesMap = {};
     let currentVersion = "1.0.0";
     let latestUpdateInfo = null;
     let localLogCleared = false;
+    let currentStoryboard = [];
+    let wavePlaying = false;
+    let wavePlayhead = 0;
+    let waveAnimId = null;
 
     function scrollToSection(id) {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth" });
+    }
+
+    function setActivePipelineStage(stageNum) {
+      for (let i = 1; i <= 4; i++) {
+        const node = document.getElementById(`stepNode${i}`);
+        if (!node) continue;
+        node.classList.remove("active", "done");
+        if (i < stageNum) node.classList.add("done");
+        else if (i === stageNum) node.classList.add("active");
+      }
+    }
+
+    function setVramGauge(fraction, textLabel, isHigh = false) {
+      const fill = document.getElementById("vramFill0");
+      const txt = document.getElementById("vramText0");
+      if (fill) {
+        const clamped = Math.max(0.04, Math.min(1, fraction));
+        fill.style.transform = `scaleX(${clamped})`;
+        fill.style.background = isHigh
+          ? "linear-gradient(90deg, #f59e0b, #ef4444)"
+          : "linear-gradient(90deg, #3b82f6, #10b981)";
+      }
+      if (txt && textLabel) txt.textContent = textLabel;
+    }
+
+    function drawWaveform() {
+      const canvas = document.getElementById("waveformCanvas");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const totalDur = Math.max(5, Number(document.getElementById("songDuration").value || 30));
+
+      // Draw scene blocks background
+      currentStoryboard.forEach((sc, idx) => {
+        const x0 = (Number(sc.start) / totalDur) * w;
+        const x1 = (Number(sc.end) / totalDur) * w;
+        ctx.fillStyle = sc.type === "lip-sync"
+          ? "rgba(37, 99, 235, 0.16)"
+          : sc.type === "action"
+          ? "rgba(245, 158, 11, 0.14)"
+          : "rgba(16, 185, 129, 0.12)";
+        ctx.fillRect(x0, 0, Math.max(2, x1 - x0 - 1), h);
+
+        // Scene divider line
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+        ctx.beginPath();
+        ctx.moveTo(x0, 0);
+        ctx.lineTo(x0, h);
+        ctx.stroke();
+
+        // Scene number tag
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "10px IBM Plex Mono, monospace";
+        ctx.fillText(`#${String(idx + 1).padStart(2, "0")}`, x0 + 4, 12);
+      });
+
+      // Draw synthetic waveform bars
+      const bars = 96;
+      const barWidth = w / bars;
+      for (let i = 0; i < bars; i++) {
+        const t = i / bars;
+        const amp = (0.28 + 0.55 * Math.abs(Math.sin(i * 0.43) * Math.cos(i * 0.19))) * (h * 0.72);
+        const x = i * barWidth;
+        const y = (h - amp) / 2 + 4;
+        const played = t <= wavePlayhead;
+        ctx.fillStyle = played ? "#60a5fa" : "#334155";
+        ctx.fillRect(x + 1, y, Math.max(1.5, barWidth - 2), amp);
+      }
+
+      // Draw animated playhead
+      const px = wavePlayhead * w;
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, h);
+      ctx.stroke();
+    }
+
+    function toggleWavePlay() {
+      const btn = document.getElementById("wavePlayBtn");
+      wavePlaying = !wavePlaying;
+      btn.textContent = wavePlaying ? "⏸ Пауза" : "▶ Старт волны";
+      if (wavePlaying) {
+        const step = () => {
+          if (!wavePlaying) return;
+          wavePlayhead += 0.0035;
+          if (wavePlayhead > 1) wavePlayhead = 0;
+          drawWaveform();
+          waveAnimId = requestAnimationFrame(step);
+        };
+        waveAnimId = requestAnimationFrame(step);
+      } else if (waveAnimId) {
+        cancelAnimationFrame(waveAnimId);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const canvas = document.getElementById("waveformCanvas");
+      if (canvas) {
+        canvas.addEventListener("click", (e) => {
+          const rect = canvas.getBoundingClientRect();
+          wavePlayhead = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          drawWaveform();
+        });
+      }
+    });
+
+    function openPreviewModal(sceneId) {
+      const sc = currentStoryboard.find(s => Number(s.id) === Number(sceneId));
+      if (!sc) return;
+      const modal = document.getElementById("videoModal");
+      const player = document.getElementById("modalVideoPlayer");
+      document.getElementById("modalTitle").textContent =
+        `Сцена #${String(sc.id).padStart(2, "0")} (${sc.type}) — ${Number(sc.start).toFixed(2)}s – ${Number(sc.end).toFixed(2)}s`;
+      document.getElementById("modalSubInfo").textContent = sc.prompt || "";
+      if (sc.clip_path) {
+        player.src = `/api/media?path=${encodeURIComponent(sc.clip_path)}`;
+      }
+      modal.classList.add("open");
+    }
+
+    function closePreviewModal() {
+      const modal = document.getElementById("videoModal");
+      const player = document.getElementById("modalVideoPlayer");
+      player.pause();
+      modal.classList.remove("open");
     }
 
     function updateGpuLabel() {
@@ -816,7 +1234,9 @@
         });
       }
 
-      renderStoryboardTable(st.storyboard || [], cfg.fps || 24);
+      currentStoryboard = st.storyboard || [];
+      renderStoryboardTable(currentStoryboard, cfg.fps || 24);
+      drawWaveform();
 
       if (!localLogCleared) {
         const logEl = document.getElementById("logBox");
@@ -831,6 +1251,8 @@
 
       storyboard.forEach(scene => {
         const tr = document.createElement("tr");
+        if (scene.status === "рендер") tr.classList.add("row-rendering");
+
         const dur = Number(scene.duration || 5);
         const frames = calcWanFrames(dur, fps);
         const rawWanDur = (frames / fps).toFixed(3);
@@ -849,6 +1271,13 @@
           ? "Герой + WAV вокал -> S2V"
           : "Без портрета героя · звук 0.0";
 
+        const progressScale = scene.status === "готово" ? 1 : scene.status === "рендер" ? 0.6 : 0.08;
+        const progressColor = scene.status === "готово" ? "#10b981" : scene.status === "рендер" ? "#3b82f6" : "#334155";
+
+        const previewBtn = (scene.status === "готово" && scene.clip_path)
+          ? `<button class="btn btn-secondary" style="padding: 4px 8px;" onclick="openPreviewModal(${scene.id})" title="Просмотр готового клипа">▶</button>`
+          : "";
+
         tr.innerHTML = `
           <td class="mono" style="color: var(--text-muted);">${sidPad}</td>
           <td>
@@ -860,6 +1289,9 @@
           <td class="mono" style="color: var(--text-sub);">
             <div>${Number(scene.start).toFixed(2)}s – ${Number(scene.end).toFixed(2)}s</div>
             <div style="color: var(--text-dim);">Длит.: ${dur.toFixed(2)}s</div>
+            <div class="scene-progress-track">
+              <div class="scene-progress-fill" style="transform: scaleX(${progressScale}); background: ${progressColor};"></div>
+            </div>
           </td>
           <td class="mono">
             <div style="color: var(--text-main);">${frames} кадр.</div>
@@ -870,9 +1302,10 @@
                    onchange="updateScene(${scene.id}, null, this.value)" />
           </td>
           <td class="${statusClass}">${scene.status || "ожидание"}</td>
-          <td style="text-align: right;">
+          <td style="text-align: right; display: flex; justify-content: flex-end; gap: 6px;">
+            ${previewBtn}
             <button class="btn btn-secondary" style="padding: 4px 10px;" onclick="renderSingleScene(${scene.id})">
-              ↻ Пересоздать
+              <span class="${scene.status === "рендер" ? "spin-anim" : ""}" style="display:inline-block;">↻</span> Пересоздать
             </button>
           </td>
         `;
@@ -889,6 +1322,8 @@
 
     async function startAce() {
       localLogCleared = false;
+      setActivePipelineStage(1);
+      setVramGauge(0.28, "6.8 / 24.0 ГБ занято (ACE-Step 1.5)");
       document.getElementById("aceStatusLabel").textContent = "Онлайн (модель в VRAM)";
       document.getElementById("aceStatusLabel").style.color = "#34d399";
       await api("/api/ace/start", "POST", {});
@@ -897,6 +1332,7 @@
 
     async function stopAce() {
       localLogCleared = false;
+      setVramGauge(0.06, "1.4 / 24.0 ГБ (VRAM освобождена)");
       document.getElementById("aceStatusLabel").textContent = "Остановлен (VRAM свободна)";
       document.getElementById("aceStatusLabel").style.color = "#64748b";
       await api("/api/ace/stop", "POST", {});
@@ -906,10 +1342,15 @@
     async function checkGpu() {
       localLogCleared = false;
       const res = await api("/api/gpu_status");
-      if (res.servers) {
+      if (res.servers && res.servers.length > 0) {
         const urls = res.servers.map(s => s.url);
         document.getElementById("gpu0Check").checked = urls.some(u => u.includes("8188"));
         document.getElementById("gpu1Check").checked = urls.some(u => u.includes("8189"));
+        const s0 = res.servers[0];
+        if (s0.vram_total_gb > 0) {
+          const used = Math.max(0.5, (s0.vram_total_gb - s0.vram_free_gb)).toFixed(1);
+          setVramGauge(used / s0.vram_total_gb, `${used} / ${s0.vram_total_gb} ГБ (${s0.gpu_name})`);
+        }
         updateGpuLabel();
       }
       await refreshState();
@@ -929,6 +1370,7 @@
 
     async function setAudioFile() {
       localLogCleared = false;
+      setActivePipelineStage(1);
       const path = document.getElementById("songPath").value.trim();
       if (!path) return;
       await api("/api/song/set_file", "POST", { path });
@@ -937,6 +1379,7 @@
 
     async function generateLyrics() {
       localLogCleared = false;
+      setActivePipelineStage(1);
       await api("/api/song/generate_lyrics", "POST", {
         prompt: document.getElementById("songPrompt").value,
         lyrics: document.getElementById("songLyrics").value
@@ -946,6 +1389,8 @@
 
     async function generateSong() {
       localLogCleared = false;
+      setActivePipelineStage(1);
+      setVramGauge(0.42, "10.1 / 24.0 ГБ (Генерация трека ACE-Step)");
       await api("/api/song/generate_audio", "POST", {
         prompt: document.getElementById("songPrompt").value,
         lyrics: document.getElementById("songLyrics").value,
@@ -975,18 +1420,23 @@
 
     async function sliceAudio() {
       localLogCleared = false;
+      setActivePipelineStage(2);
       await api("/api/audio/slice", "POST", {});
       await refreshState();
     }
 
     async function renderSingleScene(id) {
       localLogCleared = false;
+      setActivePipelineStage(3);
+      setVramGauge(0.84, "20.2 / 24.0 ГБ (Рендер Wan2.2 в ComfyUI)", true);
       await api("/api/comfy/render_scene", "POST", { id });
       await refreshState();
     }
 
     async function queueAllScenes() {
       localLogCleared = false;
+      setActivePipelineStage(3);
+      setVramGauge(0.88, "21.1 / 24.0 ГБ (Очередь Wan2.2 в ComfyUI)", true);
       const skip = document.getElementById("skipCompletedCheck").checked;
       await api("/api/comfy/queue_all", "POST", { skip_completed: skip });
       await refreshState();
@@ -994,6 +1444,7 @@
 
     async function assembleVideo() {
       localLogCleared = false;
+      setActivePipelineStage(4);
       await api("/api/video/assemble", "POST", { output_name: "final_music_video.mp4" });
       await refreshState();
     }

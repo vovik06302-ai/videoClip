@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Download,
   Copy,
   Check,
   Play,
+  Pause,
   Square,
   Cpu,
   Scissors,
@@ -13,7 +14,9 @@ import {
   FileCode,
   RefreshCw,
   FolderOpen,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Eye,
+  X
 } from 'lucide-react';
 
 import corePyRaw from '../core.py?raw';
@@ -137,6 +140,22 @@ export default function App() {
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
 
+  // 1. Pipeline Stepper State (1..4)
+  const [activeStage, setActiveStage] = useState<number>(1);
+
+  // 2. Animated VRAM Gauge State
+  const [vramUsedGb, setVramUsedGb] = useState<number>(4.2);
+  const [vramTotalGb] = useState<number>(24.0);
+  const [vramLabel, setVramLabel] = useState<string>('ACE-Step 1.5 в памяти');
+
+  // 3. Interactive Waveform Canvas & Playhead State
+  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [wavePlaying, setWavePlaying] = useState<boolean>(false);
+  const [wavePlayhead, setWavePlayhead] = useState<number>(0.18);
+
+  // 4. Preview Modal State
+  const [previewScene, setPreviewScene] = useState<SceneItem | null>(null);
+
   // Updater State
   const [updateStatusText, setUpdateStatusText] = useState<string>(
     `Установлена версия: v${APP_VERSION} | Доступна: не проверено`
@@ -205,16 +224,83 @@ export default function App() {
   });
 
   const [logs, setLogs] = useState<string[]>([
-    `[INFO] Инициализация MusicVideoStudio v${APP_VERSION}: self.config инициализирован до load_config().`,
+    `[INFO] Инициализация MusicVideoStudio v${APP_VERSION}: DATA_DIR проверена на запись.`,
     '[INFO] Открыт проект "cyber_cat_clip": длительность трека (FFprobe) 28.450 сек, сцен: 6',
-    '[GPU] Сервер http://127.0.0.1:8188 ОНЛАЙН — NVIDIA GeForce RTX 4090 (Свободно VRAM: 21.40 / 24.00 ГБ)'
+    '[GPU] Сервер http://127.0.0.1:8188 ОНЛАЙН — NVIDIA GeForce RTX 4090 (Свободно VRAM: 19.80 / 24.00 ГБ)'
   ]);
 
   const appendLog = (msg: string) => {
     setLogs((prev) => [...prev, msg]);
   };
 
-  // Real GitHub Releases API check against vovik06302-ai/videoClip
+  // Interactive Waveform Animation Effect
+  useEffect(() => {
+    if (!wavePlaying) return;
+    let animId: number;
+    const tick = () => {
+      setWavePlayhead((prev) => (prev + 0.003 > 1 ? 0 : prev + 0.003));
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [wavePlaying]);
+
+  // Draw Waveform + Scene Slice Markers on Canvas
+  useEffect(() => {
+    const canvas = waveformCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const totalDur = Math.max(5, songDuration);
+
+    storyboard.forEach((sc, idx) => {
+      const x0 = (sc.start / totalDur) * w;
+      const x1 = (sc.end / totalDur) * w;
+      ctx.fillStyle =
+        sc.type === 'lip-sync'
+          ? 'rgba(37, 99, 235, 0.16)'
+          : sc.type === 'action'
+          ? 'rgba(245, 158, 11, 0.14)'
+          : 'rgba(16, 185, 129, 0.12)';
+      ctx.fillRect(x0, 0, Math.max(2, x1 - x0 - 1), h);
+
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.32)';
+      ctx.beginPath();
+      ctx.moveTo(x0, 0);
+      ctx.lineTo(x0, h);
+      ctx.stroke();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px "IBM Plex Mono", monospace';
+      ctx.fillText(`#${String(idx + 1).padStart(2, '0')}`, x0 + 4, 12);
+    });
+
+    const bars = 96;
+    const barW = w / bars;
+    for (let i = 0; i < bars; i++) {
+      const t = i / bars;
+      const amp = (0.28 + 0.56 * Math.abs(Math.sin(i * 0.43) * Math.cos(i * 0.19))) * (h * 0.7);
+      const x = i * barW;
+      const y = (h - amp) / 2 + 4;
+      ctx.fillStyle = t <= wavePlayhead ? '#60a5fa' : '#334155';
+      ctx.fillRect(x + 1, y, Math.max(1.5, barW - 2), amp);
+    }
+
+    const px = wavePlayhead * w;
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, h);
+    ctx.stroke();
+  }, [storyboard, songDuration, wavePlayhead, activeView]);
+
+  // Real GitHub Releases API check
   const handleCheckForUpdates = async () => {
     setCheckingUpdate(true);
     setUpdateStatusText(`Установлена: v${APP_VERSION} | Проверка на GitHub...`);
@@ -232,14 +318,12 @@ export default function App() {
       if (resp.status === 404) {
         setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${APP_VERSION} (Актуальная)`);
         setUpdateAvailable(false);
-        appendLog('[UPDATE] В репозитории пока нет опубликованных релизов (HTTP 404). Установлена актуальная версия.');
+        appendLog('[UPDATE] Опубликованных релизов пока нет (HTTP 404).');
         setCheckingUpdate(false);
         return;
       }
 
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`);
-      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
       const data = await resp.json();
       const rawTag = String(data.tag_name || '').trim();
@@ -247,10 +331,7 @@ export default function App() {
       const notes = String(data.body || '');
       const assets = Array.isArray(data.assets) ? data.assets : [];
 
-      const parseVer = (v: string) =>
-        v
-          .split('.')
-          .map((n) => parseInt(n, 10) || 0);
+      const parseVer = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);
       const vLat = parseVer(latest);
       const vCur = parseVer(APP_VERSION);
       let isNewer = false;
@@ -272,14 +353,6 @@ export default function App() {
           break;
         }
       }
-      if (!foundUrl) {
-        const anyExe = assets.find(
-          (a: { name?: string }) => a && String(a.name || '').toLowerCase().endsWith('.exe')
-        );
-        if (anyExe && anyExe.browser_download_url) {
-          foundUrl = anyExe.browser_download_url;
-        }
-      }
 
       setDownloadUrl(foundUrl || `https://github.com/${GITHUB_REPO}/releases/latest`);
       setReleaseNotes(notes);
@@ -287,48 +360,59 @@ export default function App() {
 
       if (isNewer) {
         setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${latest} (Есть обновление!)`);
-        appendLog(`[UPDATE] Найдено обновление v${latest}! Установщик: ${foundUrl || 'см. страницу релиза'}`);
+        appendLog(`[UPDATE] Найдено обновление v${latest}! Установщик: ${foundUrl || 'см. релиз'}`);
       } else {
         setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${latest} (Актуальная)`);
-        appendLog(`[UPDATE] Установлена актуальная версия v${APP_VERSION} (на GitHub: v${latest}).`);
+        appendLog(`[UPDATE] Установлена актуальная версия v${APP_VERSION}.`);
       }
     } catch (err) {
       setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${APP_VERSION} (Актуальная)`);
-      appendLog(`[UPDATE] Проверка завершена (${String(err)}). Текущая версия: v${APP_VERSION}`);
+      appendLog(`[UPDATE] Проверка завершена (${String(err)}).`);
     } finally {
       setCheckingUpdate(false);
     }
   };
+
+  useEffect(() => {
+    handleCheckForUpdates();
+  }, []);
 
   const handleInstallUpdate = () => {
     const targetUrl =
       downloadUrl ||
       `https://github.com/${GITHUB_REPO}/releases/latest/download/MusicVideoStudio_Setup.exe`;
     appendLog(
-      `[UPDATE] download_and_install_update("${targetUrl}") -> скачивание в %TEMP%\\MusicVideoStudio_Setup.exe и запуск subprocess.Popen...`
+      `[UPDATE] Очистка _MEIPASS2/PYTHONPATH и запуск os.startfile("${targetUrl}") -> завершение приложения...`
     );
     setUpdateStatusText('Скачивание MusicVideoStudio_Setup.exe во временную папку...');
   };
 
   const handleStopAce = () => {
     setAceOnline(false);
+    setVramUsedGb(1.2);
+    setVramLabel('VRAM освобождена для ComfyUI');
     appendLog(
-      '[INFO] Выполнено: taskkill /F /T /PID 14820 — дерево процессов ACE-Step 1.5 остановлено. Освобождено ~4.2 ГБ VRAM.'
+      '[INFO] Выполнено: taskkill /F /T /PID 14820 — дерево процессов ACE-Step 1.5 остановлено. Освобождено ~5.6 ГБ VRAM.'
     );
   };
 
   const handleStartAce = () => {
     setAceOnline(true);
+    setActiveStage(1);
+    setVramUsedGb(6.8);
+    setVramLabel('ACE-Step 1.5 загружен в VRAM');
     appendLog('[INFO] Запущен сервер ACE-Step 1.5 на http://127.0.0.1:8001 (PID=18492)');
   };
 
   const handleProbeAudio = () => {
+    setActiveStage(1);
     appendLog(
       `[AUDIO] FFprobe анализ "${songPath}" -> точная длительность: ${songDuration.toFixed(3)} сек.`
     );
   };
 
   const handleGenerateLyrics = () => {
+    setActiveStage(1);
     appendLog('[ACE] POST /format_input (модель acestep-5Hz-lm-0.6B) -> текст и структурные теги отформатированы.');
     setLyrics(
       '[Verse 1]\nNeon lights across the bay\nChasing shadows far away\nSynthesizers in the rain\nWashing out the static pain\n\n[Chorus]\nWe are running through the night\nGlowing in electric light'
@@ -336,6 +420,9 @@ export default function App() {
   };
 
   const handleGenerateSong = () => {
+    setActiveStage(1);
+    setVramUsedGb(9.6);
+    setVramLabel('Генерация вокала (acestep-v15-turbo)');
     appendLog(
       `[ACE] POST /release_task (модель acestep-v15-turbo, длительность ${songDuration}s, seed=${songSeed}) -> поллинг /query_result...`
     );
@@ -379,6 +466,7 @@ export default function App() {
   };
 
   const handleSliceAudio = () => {
+    setActiveStage(2);
     storyboard.forEach((sc) => {
       appendLog(
         `[FFMPEG] ffmpeg -y -ss ${sc.start.toFixed(2)} -t ${sc.duration.toFixed(2)} -i song.mp3 -ac 1 -ar 16000 -c:a pcm_s16le segments/scene_${String(sc.id).padStart(3, '0')}.wav`
@@ -403,12 +491,23 @@ export default function App() {
   const handleRenderSingle = (id: number) => {
     const sc = storyboard.find((s) => s.id === id);
     if (!sc) return;
+    setActiveStage(3);
+    setVramUsedGb(20.4);
+    setVramLabel(`Рендер сцены #${String(id).padStart(2, '0')} (Wan2.2)`);
     const frames = calcWanFrames(sc.duration, 24);
     const wfUsed = sc.type === 'lip-sync' ? wfLipsync : wfBroll || wfLipsync;
     appendLog(
       `[COMFY] Пересоздание сцены #${String(id).padStart(3, '0')} (${sc.type}, ${frames} кадров [4k+1], шаблон: ${wfUsed})...`
     );
-    setStoryboard((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'готово' } : s)));
+
+    // Show live shimmer rendering state briefly, then transition to ready
+    setStoryboard((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'рендер' } : s)));
+    setTimeout(() => {
+      setStoryboard((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'готово' } : s)));
+      setVramUsedGb(4.8);
+      setVramLabel('Рендер завершён (ComfyUI в ожидании)');
+      appendLog(`[COMFY] Сцена #${String(id).padStart(3, '0')} успешно отрендерена -> clips/scene_${String(id).padStart(3, '0')}.mp4`);
+    }, 900);
   };
 
   const handleQueueAll = () => {
@@ -421,6 +520,10 @@ export default function App() {
       return;
     }
 
+    setActiveStage(3);
+    setVramUsedGb(21.2);
+    setVramLabel(`Рендер очереди (${onlineUrls.length} GPU)`);
+
     const pending = storyboard.filter((s) => !(skipCompleted && s.status === 'готово'));
     appendLog(
       `[QUEUE] Доступно серверов ComfyUI: ${onlineUrls.length} (${onlineUrls.join(', ')}). Направление задач с шагом ${onlineUrls.length}. Сцен в очереди: ${pending.length}`
@@ -429,12 +532,19 @@ export default function App() {
     setStoryboard((prev) =>
       prev.map((s) => {
         if (skipCompleted && s.status === 'готово') return s;
-        return { ...s, status: 'готово' };
+        return { ...s, status: 'рендер' };
       })
     );
+
+    setTimeout(() => {
+      setStoryboard((prev) => prev.map((s) => ({ ...s, status: 'готово' })));
+      setVramUsedGb(4.8);
+      setVramLabel('Все сцены отрендерены');
+    }, 1100);
   };
 
   const handleAssemble = () => {
+    setActiveStage(4);
     storyboard.forEach((sc) => {
       appendLog(
         `[SYNC] Выравнивание сцены #${String(sc.id).padStart(3, '0')}: обрезка ${calcWanFrames(sc.duration, 24)} кадров -> строго -t ${sc.duration.toFixed(4)} -r 24 (устранение Lip-Sync Drift)`
@@ -462,11 +572,12 @@ export default function App() {
   };
 
   const selectedFile = SOURCE_FILES[selectedFileIndex];
+  const vramFraction = Math.max(0.05, Math.min(1, vramUsedGb / vramTotalGb));
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top Bar Contract: Zone 1 Brand — Zone 2 Nav Links — Zone 3 Primary Action */}
-      <header className="flex items-center justify-between gap-8 px-6 py-3.5 border-b border-slate-800 bg-slate-900/90">
+      <header className="flex items-center justify-between gap-8 px-6 py-3.5 border-b border-slate-800 bg-slate-900/90 sticky top-0 z-30 backdrop-blur">
         <a
           href="#top"
           onClick={(e) => {
@@ -512,9 +623,9 @@ export default function App() {
       </header>
 
       {activeView === 'studio' ? (
-        <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-5 flex flex-col gap-5">
-          {/* Top Workspace Strip: Program Update Bar (GitHub Releases: vovik06302-ai/videoClip) */}
-          <section className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+        <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-4 flex flex-col gap-4">
+          {/* Top Workspace Strip: Program Update Bar */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <ArrowUpCircle className="w-4 h-4 text-blue-400 shrink-0" />
               <span className="text-xs font-semibold text-slate-200">Обновление программы:</span>
@@ -549,10 +660,52 @@ export default function App() {
             </div>
           </section>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* 4-Stage Animated Pipeline Stepper */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { id: 1, title: 'Песня и FFprobe', sub: 'ACE-Step 1.5 · 5Hz LM + Turbo' },
+              { id: 2, title: 'Нарезка сегментов', sub: 'FFmpeg · 16kHz Mono WAV' },
+              { id: 3, title: 'Генерация видео (Wan2.2)', sub: 'ComfyUI · S2V Lip-Sync + B-Roll' },
+              { id: 4, title: 'Синхронизация и сборка', sub: 'Подрезка 4k+1 → 24 FPS CRF 18' }
+            ].map((st) => {
+              const isActive = activeStage === st.id;
+              const isDone = activeStage > st.id;
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => setActiveStage(st.id)}
+                  className={`text-left flex items-center gap-3 px-3 py-2 rounded-md border transition-all ${
+                    isActive
+                      ? 'bg-slate-950 border-blue-500'
+                      : isDone
+                      ? 'bg-slate-950/60 border-emerald-500/50'
+                      : 'bg-slate-950/40 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div
+                    className={`w-6 h-6 rounded text-xs font-mono font-bold flex items-center justify-center shrink-0 ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : isDone
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    0{st.id}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-100 truncate">{st.title}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{st.sub}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </section>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Left Column: Project, ACE-Step 1.5, VRAM Settings */}
-            <div className="lg:col-span-4 space-y-5">
-              {/* Project & Server Control */}
+            <div className="lg:col-span-4 space-y-4">
+              {/* Project & Server Control + Animated VRAM Gauge */}
               <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
                   <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
@@ -601,7 +754,29 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-slate-800/80 text-xs text-slate-400 space-y-2">
+                {/* Animated GPU VRAM Fill Bar */}
+                <div className="mt-3 bg-slate-950/80 border border-slate-800 rounded-md p-2.5">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5">
+                    <span className="text-slate-300">Видеопамять GPU 0 ({vramLabel}):</span>
+                    <span className="font-mono tabular-nums text-emerald-400 font-medium">
+                      {vramUsedGb.toFixed(1)} / {vramTotalGb.toFixed(1)} ГБ
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                    <div
+                      className="h-full origin-left transition-transform duration-300"
+                      style={{
+                        transform: `scaleX(${vramFraction})`,
+                        background:
+                          vramUsedGb > 16
+                            ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                            : 'linear-gradient(90deg, #3b82f6, #10b981)'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-xs text-slate-400 space-y-2">
                   <div className="flex items-center justify-between">
                     <span>ACE-Step 1.5 (127.0.0.1:8001):</span>
                     <span className={aceOnline ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
@@ -629,7 +804,7 @@ export default function App() {
                 </div>
               </section>
 
-              {/* Step 1: ACE-Step 1.5 Song & FFprobe */}
+              {/* Step 1: ACE-Step 1.5 Song, FFprobe & Interactive Waveform */}
               <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
                 <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-800 pb-2.5 mb-3 flex items-center gap-2">
                   <Music className="w-4 h-4 text-blue-400" />
@@ -654,7 +829,7 @@ export default function App() {
                       Текст песни (Lyrics — /format_input с acestep-5Hz-lm-0.6B)
                     </label>
                     <textarea
-                      rows={4}
+                      rows={3}
                       value={lyrics}
                       onChange={(e) => setLyrics(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono text-slate-100"
@@ -706,6 +881,41 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* Interactive Audio Waveform with Scene Boundaries */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-md p-2.5">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+                      <span>Аудиоволна и разметка сцен (клик для перемотки):</span>
+                      <button
+                        onClick={() => setWavePlaying((p) => !p)}
+                        className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded flex items-center gap-1 text-[11px]"
+                      >
+                        {wavePlaying ? (
+                          <>
+                            <Pause className="w-3 h-3 text-amber-400" /> Пауза
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3 h-3 text-emerald-400" /> Старт волны
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <canvas
+                      ref={waveformCanvasRef}
+                      width={420}
+                      height={58}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const ratio = Math.max(
+                          0,
+                          Math.min(1, (e.clientX - rect.left) / rect.width)
+                        );
+                        setWavePlayhead(ratio);
+                      }}
+                      className="w-full h-[58px] cursor-pointer rounded"
+                    />
+                  </div>
+
                   <div className="pt-2 border-t border-slate-800/80 space-y-2">
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">
@@ -740,7 +950,7 @@ export default function App() {
                   3. Настройки путей, VRAM и Обновление
                 </h2>
 
-                <div className="space-y-2.5 text-xs">
+                <div className="space-y-2 text-xs">
                   <div>
                     <label className="block text-slate-400 mb-1">ace_dir</label>
                     <input
@@ -817,7 +1027,7 @@ export default function App() {
             </div>
 
             {/* Right Column: Storyboard Table, Queue & Logs */}
-            <div className="lg:col-span-8 flex flex-col gap-5">
+            <div className="lg:col-span-8 flex flex-col gap-4">
               <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex-1 flex flex-col">
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3 mb-3">
                   <div>
@@ -912,15 +1122,24 @@ export default function App() {
                         <th className="py-2.5 px-2.5 font-medium w-28">Wan кадры (4k+1)</th>
                         <th className="py-2.5 px-2.5 font-medium">Английский промпт (UMT5)</th>
                         <th className="py-2.5 px-2.5 font-medium w-24">Статус</th>
-                        <th className="py-2.5 px-2.5 font-medium w-32 text-right">Действие</th>
+                        <th className="py-2.5 px-2.5 font-medium w-36 text-right">Действие</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/70">
                       {storyboard.map((sc) => {
                         const wanFrames = calcWanFrames(sc.duration, 24);
                         const rawWanDur = (wanFrames / 24).toFixed(3);
+                        const progressScale =
+                          sc.status === 'готово' ? 1 : sc.status === 'рендер' ? 0.65 : 0.1;
                         return (
-                          <tr key={sc.id} className="hover:bg-slate-800/30 transition-colors">
+                          <tr
+                            key={sc.id}
+                            className={`transition-colors ${
+                              sc.status === 'рендер'
+                                ? 'bg-blue-950/30'
+                                : 'hover:bg-slate-800/30'
+                            }`}
+                          >
                             <td className="py-2.5 px-2.5 font-mono tabular-nums text-slate-400">
                               {String(sc.id).padStart(2, '0')}
                             </td>
@@ -949,6 +1168,20 @@ export default function App() {
                                 {sc.start.toFixed(2)}s – {sc.end.toFixed(2)}s
                               </div>
                               <div className="text-slate-500">Длит.: {sc.duration.toFixed(2)}s</div>
+                              <div className="w-full h-1 bg-slate-950 rounded overflow-hidden mt-1">
+                                <div
+                                  className="h-full origin-left transition-transform duration-300"
+                                  style={{
+                                    transform: `scaleX(${progressScale})`,
+                                    backgroundColor:
+                                      sc.status === 'готово'
+                                        ? '#10b981'
+                                        : sc.status === 'рендер'
+                                        ? '#3b82f6'
+                                        : '#334155'
+                                  }}
+                                />
+                              </div>
                             </td>
                             <td className="py-2.5 px-2.5 font-mono tabular-nums">
                               <div className="text-slate-200">{wanFrames} кадр.</div>
@@ -968,19 +1201,34 @@ export default function App() {
                               {sc.status === 'готово' ? (
                                 <span className="text-emerald-400">готово</span>
                               ) : sc.status === 'рендер' ? (
-                                <span className="text-amber-400">рендер</span>
+                                <span className="text-amber-400">рендер...</span>
                               ) : (
                                 <span className="text-slate-400">ожидание</span>
                               )}
                             </td>
                             <td className="py-2.5 px-2.5 text-right">
-                              <button
-                                onClick={() => handleRenderSingle(sc.id)}
-                                className="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded inline-flex items-center gap-1 whitespace-nowrap"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                Пересоздать
-                              </button>
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                {sc.status === 'готово' && (
+                                  <button
+                                    onClick={() => setPreviewScene(sc)}
+                                    title="Предпросмотр готовой сцены"
+                                    className="px-2 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded inline-flex items-center"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleRenderSingle(sc.id)}
+                                  className="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded inline-flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  <RefreshCw
+                                    className={`w-3 h-3 ${
+                                      sc.status === 'рендер' ? 'animate-spin text-blue-400' : ''
+                                    }`}
+                                  />
+                                  Пересоздать
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1013,6 +1261,44 @@ export default function App() {
               </section>
             </div>
           </div>
+
+          {/* Scene Preview Modal */}
+          {previewScene && (
+            <div
+              onClick={() => setPreviewScene(null)}
+              className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-slate-900 border border-slate-700 rounded-lg max-w-xl w-full p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="text-sm font-semibold text-slate-100">
+                    Предпросмотр сцены #{String(previewScene.id).padStart(2, '0')} ({previewScene.type})
+                  </div>
+                  <button
+                    onClick={() => setPreviewScene(null)}
+                    className="text-slate-400 hover:text-slate-200"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-md h-56 flex flex-col items-center justify-center p-6 text-center">
+                  <Film className="w-8 h-8 text-blue-400 mb-2" />
+                  <div className="text-xs font-mono text-slate-200">
+                    projects/{projectName}/clips/scene_{String(previewScene.id).padStart(3, '0')}.mp4
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    Таймкод: {previewScene.start.toFixed(2)}s – {previewScene.end.toFixed(2)}s · Кадров Wan2.2:{' '}
+                    {calcWanFrames(previewScene.duration, 24)} (выровнено до {previewScene.duration.toFixed(2)}s @ 24 FPS)
+                  </div>
+                </div>
+                <div className="text-xs font-mono text-slate-300 bg-slate-950 p-2.5 rounded border border-slate-800">
+                  {previewScene.prompt}
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       ) : (
         /* Source Code Explorer & Downloader for all 8 files */

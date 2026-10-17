@@ -63,6 +63,7 @@ jobs:
           # лежали стационарно в папке программы и никогда не вызывали ошибку Temp\_MEI...
           pyinstaller --noconfirm --clean --onedir --noconsole `
             --name "MusicVideoStudio_Desktop" `
+            --add-data "web;web" `
             app.py
 
           pyinstaller --noconfirm --clean --onedir `
