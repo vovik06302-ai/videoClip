@@ -5,10 +5,10 @@ import urllib.parse
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import List, Dict, Any
-from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS
+from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS, BUNDLE_DIR
 
 PORT = 8765
-WEB_DIR = Path(__file__).parent / "web"
+WEB_DIR = BUNDLE_DIR / "web"
 
 studio = StudioCore()
 log_buffer: List[str] = []

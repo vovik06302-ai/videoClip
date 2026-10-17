@@ -21,6 +21,8 @@ import webAppPyRaw from '../web_app.py?raw';
 import webIndexHtmlRaw from '../web/index.html?raw';
 import startDesktopBatRaw from '../start_desktop.bat?raw';
 import startWebBatRaw from '../start_web.bat?raw';
+import installerIssRaw from '../installer.iss?raw';
+import buildExeYmlRaw from '../.github/workflows/build_exe.yml?raw';
 
 type SceneType = 'lip-sync' | 'b-roll' | 'action' | 'outro';
 
@@ -109,6 +111,13 @@ const SOURCE_FILES = [
   { name: 'app.py', path: 'app.py', lang: 'python', content: appPyRaw },
   { name: 'web_app.py', path: 'web_app.py', lang: 'python', content: webAppPyRaw },
   { name: 'web/index.html', path: 'web/index.html', lang: 'html', content: webIndexHtmlRaw },
+  { name: 'installer.iss', path: 'installer.iss', lang: 'ini', content: installerIssRaw },
+  {
+    name: 'build_exe.yml',
+    path: '.github/workflows/build_exe.yml',
+    lang: 'yaml',
+    content: buildExeYmlRaw
+  },
   { name: 'start_desktop.bat', path: 'start_desktop.bat', lang: 'bat', content: startDesktopBatRaw },
   { name: 'start_web.bat', path: 'start_web.bat', lang: 'bat', content: startWebBatRaw }
 ];
@@ -374,7 +383,7 @@ export default function App() {
               activeView === 'sources' ? 'text-slate-100 border-b-2 border-blue-500' : ''
             }`}
           >
-            Исходный код Python (6 файлов)
+            Исходный код и CI/CD (8 файлов)
           </button>
         </nav>
 

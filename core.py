@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import json
 import time
@@ -11,8 +12,18 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Callable
 
-CONFIG_PATH = Path("config.json")
-PROJECTS_ROOT = Path("projects")
+# BUNDLE_DIR — для чтения вшитых в PyInstaller ресурсов (например, папки web)
+BUNDLE_DIR: Path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+# APP_DIR — для записи и чтения изменяемых данных рядом с .exe (config.json и папка projects)
+APP_DIR: Path = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
+
+CONFIG_PATH: Path = APP_DIR / "config.json"
+PROJECTS_ROOT: Path = APP_DIR / "projects"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "ace_dir": r"C:\AI\ACE-Step-1.5",

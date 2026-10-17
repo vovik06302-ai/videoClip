@@ -2,5 +2,7 @@
   "name": "MusicVideoStudio — Локальная ИИ-студия музыкальных клипов",
   "description": "Локальная ИИ-студия музыкальных клипов (ACE-Step 1.5 + ComfyUI Wan2.2 + FFmpeg) на стандартной библиотеке Python 3.11+ с интерактивным веб-превью и готовыми исходниками.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

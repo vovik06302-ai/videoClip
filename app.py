@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS
+from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS, PROJECTS_ROOT
 
 
 class MusicVideoStudioApp(tk.Tk):
@@ -312,7 +312,7 @@ class MusicVideoStudioApp(tk.Tk):
         self._load_state_into_ui()
 
     def on_browse_project_dir(self) -> None:
-        chosen = filedialog.askdirectory(initialdir=str(Path("projects").resolve()), title="Выберите папку проекта")
+        chosen = filedialog.askdirectory(initialdir=str(PROJECTS_ROOT.resolve()), title="Выберите папку проекта")
         if chosen:
             proj_name = Path(chosen).name
             self.project_var.set(proj_name)

@@ -1,0 +1,73 @@
+name: Build Windows Executables & Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+
+      - name: Build MusicVideoStudio_Desktop.exe and MusicVideoStudio_Web.exe
+        shell: pwsh
+        run: |
+          # 1. Сборка десктопного приложения (без консольного окна)
+          pyinstaller --noconfirm --clean --onefile --noconsole `
+            --name "MusicVideoStudio_Desktop" `
+            app.py
+
+          # 2. Сборка веб-сервера (с вшитой папкой web через --add-data "web;web")
+          pyinstaller --noconfirm --clean --onefile `
+            --name "MusicVideoStudio_Web" `
+            --add-data "web;web" `
+            web_app.py
+
+          # 3. Подготовка единой директории dist/MusicVideoStudio для Inno Setup и портативного архива
+          New-Item -ItemType Directory -Force -Path "dist/MusicVideoStudio" | Out-Null
+          Copy-Item "dist/MusicVideoStudio_Desktop.exe" -Destination "dist/MusicVideoStudio/"
+          Copy-Item "dist/MusicVideoStudio_Web.exe" -Destination "dist/MusicVideoStudio/"
+          Copy-Item "start_desktop.bat" -Destination "dist/MusicVideoStudio/" -ErrorAction SilentlyContinue
+          Copy-Item "start_web.bat" -Destination "dist/MusicVideoStudio/" -ErrorAction SilentlyContinue
+
+      - name: Compile Inno Setup Installer (MusicVideoStudio_Setup.exe)
+        shell: pwsh
+        run: |
+          iscc installer.iss
+
+      - name: Upload Artifacts to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicVideoStudio-Windows-Build
+          path: |
+            dist/MusicVideoStudio_Desktop.exe
+            dist/MusicVideoStudio_Web.exe
+            Output/MusicVideoStudio_Setup.exe
+
+      - name: Publish to GitHub Releases (on version tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/MusicVideoStudio_Desktop.exe
+            dist/MusicVideoStudio_Web.exe
+            Output/MusicVideoStudio_Setup.exe
+          generate_release_notes: true
