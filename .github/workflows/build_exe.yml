@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Номер версии для сборки (например, 1.0.1)"
+        required: false
+        default: "1.0.0"
 
 permissions:
   contents: write
@@ -16,6 +21,30 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Determine Release Version and Inject into core.py & installer.iss
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}".StartsWith("v")) {
+            $ver = "${{ github.ref_name }}".TrimStart("v")
+          } elseif ("${{ github.event.inputs.version }}" -ne "") {
+            $ver = "${{ github.event.inputs.version }}".TrimStart("v")
+          } else {
+            $ver = "1.0.0"
+          }
+          Write-Host "Сборка версии: $ver"
+          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # 1. Подставляем точную версию в APP_VERSION внутри core.py
+          $coreContent = Get-Content -Path "core.py" -Raw -Encoding UTF8
+          $coreContent = $coreContent -replace 'APP_VERSION\s*=\s*"[^"]*"', "APP_VERSION = `"$ver`""
+          Set-Content -Path "core.py" -Value $coreContent -Encoding UTF8
+
+          # 2. Подставляем точную версию в MyAppVersion внутри installer.iss
+          $issContent = Get-Content -Path "installer.iss" -Raw -Encoding UTF8
+          $issContent = $issContent -replace '#define MyAppVersion\s+"[^"]*"', "#define MyAppVersion `"$ver`""
+          Set-Content -Path "installer.iss" -Value $issContent -Encoding UTF8
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -51,12 +80,12 @@ jobs:
       - name: Compile Inno Setup Installer (MusicVideoStudio_Setup.exe)
         shell: pwsh
         run: |
-          iscc installer.iss
+          iscc "/DMyAppVersion=$env:VERSION" installer.iss
 
       - name: Upload Artifacts to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: MusicVideoStudio-Windows-Build
+          name: MusicVideoStudio-v${{ env.VERSION }}-Windows
           path: |
             dist/MusicVideoStudio_Desktop.exe
             dist/MusicVideoStudio_Web.exe

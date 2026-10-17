@@ -5,7 +5,14 @@ import urllib.parse
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import List, Dict, Any
-from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS, BUNDLE_DIR
+from core import (
+    StudioCore,
+    SCENE_TYPE_LABELS,
+    STORYBOARD_PRESETS,
+    BUNDLE_DIR,
+    APP_VERSION,
+    GITHUB_REPO
+)
 
 PORT = 8765
 WEB_DIR = BUNDLE_DIR / "web"
@@ -65,6 +72,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 logs_copy = list(log_buffer[-120:])
             self._send_json({
                 "ok": True,
+                "version": APP_VERSION,
+                "github_repo": GITHUB_REPO,
                 "config": studio.config,
                 "state": studio.state,
                 "projects": studio.list_projects(),
@@ -72,6 +81,15 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "scene_types": SCENE_TYPE_LABELS,
                 "logs": logs_copy
             })
+            return
+
+        if route == "/api/update/check":
+            try:
+                info = studio.check_for_updates(log_cb=append_log)
+                self._send_json({"ok": True, **info})
+            except Exception as e:
+                append_log(f"[UPDATE ERROR] {e}")
+                self._send_json({"ok": False, "error": str(e), "current_version": APP_VERSION}, 500)
             return
 
         if route == "/api/gpu_status":
@@ -102,6 +120,25 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         route = parsed.path
         try:
             body = self._read_json_body()
+
+            if route == "/api/update/install":
+                download_url = str(body.get("download_url", "")).strip()
+                if not download_url:
+                    info = studio.check_for_updates(log_cb=append_log)
+                    download_url = str(info.get("download_url", "")).strip()
+                if not download_url:
+                    self._send_json({"ok": False, "error": "Ссылка на установщик MusicVideoStudio_Setup.exe не найдена в релизе"}, 400)
+                    return
+
+                def _bg_install() -> None:
+                    try:
+                        studio.download_and_install_update(download_url, exit_app=True, log_cb=append_log)
+                    except Exception as exc:
+                        append_log(f"[UPDATE ERROR] {exc}")
+
+                threading.Thread(target=_bg_install, daemon=True).start()
+                self._send_json({"ok": True, "message": "Скачивание и запуск установщика начаты"})
+                return
 
             if route == "/api/config":
                 cfg = studio.save_config(body)
@@ -248,7 +285,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 def main() -> None:
     studio.open_project(studio.state["project_name"], log_cb=append_log)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), StudioRequestHandler)
-    append_log(f"[WEB] Веб-сервер MusicVideoStudio запущен: http://127.0.0.1:{PORT}")
+    append_log(f"[WEB] Веб-сервер MusicVideoStudio v{APP_VERSION} запущен: http://127.0.0.1:{PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

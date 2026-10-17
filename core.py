@@ -5,12 +5,16 @@ import json
 import time
 import math
 import shutil
+import tempfile
 import urllib.request
 import urllib.parse
 import urllib.error
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Callable
+
+APP_VERSION = "1.0.0"
+GITHUB_REPO = "vovik06302-ai/videoClip"
 
 # BUNDLE_DIR — для чтения вшитых в PyInstaller ресурсов (например, папки web)
 BUNDLE_DIR: Path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -1154,3 +1158,133 @@ class StudioCore:
         if log_cb:
             log_cb(f"[DONE] Финальный клип успешно собран: {final_mp4.resolve()}")
         return str(final_mp4.resolve())
+
+    # -------------------------------------------------------------------------
+    # Система проверки и установки обновлений через GitHub Releases
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _parse_version_tuple(ver_str: str) -> Tuple[int, ...]:
+        cleaned = ver_str.strip().lstrip("vV")
+        parts = re.findall(r"\d+", cleaned)
+        return tuple(int(p) for p in parts) if parts else (0, 0, 0)
+
+    def check_for_updates(self, log_cb: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """
+        Проверяет последний релиз в GitHub репозитории GITHUB_REPO.
+        Возвращает словарь с информацией о текущей и доступной версиях, ссылкой на установщик и списком изменений.
+        """
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "MusicVideoStudio-Updater"
+        }
+        if log_cb:
+            log_cb(f"[UPDATE] Проверка обновлений в репозитории {GITHUB_REPO} (текущая v{APP_VERSION})...")
+
+        req = urllib.request.Request(api_url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15.0) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                release = json.loads(raw) if raw.strip() else {}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                if log_cb:
+                    log_cb("[UPDATE] Опубликованных релизов в GitHub Releases пока нет.")
+                return {
+                    "current_version": APP_VERSION,
+                    "latest_version": APP_VERSION,
+                    "update_available": False,
+                    "download_url": "",
+                    "html_url": f"https://github.com/{GITHUB_REPO}/releases",
+                    "notes": "Релизы ещё не опубликованы."
+                }
+            raise RuntimeError(f"Ошибка обращения к GitHub API ({e.code}): {e.reason}")
+        except Exception as e:
+            raise RuntimeError(f"Не удалось проверить обновления: {e}")
+
+        tag_name = str(release.get("tag_name", "")).strip()
+        latest = tag_name.lstrip("vV") or APP_VERSION
+        body = str(release.get("body", "") or "")
+        html_url = str(release.get("html_url", f"https://github.com/{GITHUB_REPO}/releases"))
+        assets = release.get("assets", [])
+
+        try:
+            is_newer = tuple(map(int, latest.split("."))) > tuple(map(int, APP_VERSION.split(".")))
+        except ValueError:
+            is_newer = self._parse_version_tuple(latest) > self._parse_version_tuple(APP_VERSION)
+
+        download_url = ""
+        preferred_names = ("MusicVideoStudio_Setup.exe", "MusicVideoStudio_Desktop.exe")
+        if isinstance(assets, list):
+            for pref in preferred_names:
+                for asset in assets:
+                    if isinstance(asset, dict) and str(asset.get("name", "")) == pref:
+                        download_url = str(asset.get("browser_download_url", ""))
+                        break
+                if download_url:
+                    break
+            if not download_url:
+                for asset in assets:
+                    if isinstance(asset, dict) and str(asset.get("name", "")).lower().endswith(".exe"):
+                        download_url = str(asset.get("browser_download_url", ""))
+                        break
+
+        if log_cb:
+            if is_newer:
+                log_cb(f"[UPDATE] Доступна новая версия: v{latest} (установлена v{APP_VERSION}).")
+            else:
+                log_cb(f"[UPDATE] Установлена актуальная версия v{APP_VERSION} (на GitHub: v{latest}).")
+
+        return {
+            "current_version": APP_VERSION,
+            "latest_version": latest,
+            "update_available": is_newer,
+            "download_url": download_url,
+            "html_url": html_url,
+            "notes": body
+        }
+
+    def download_and_install_update(
+        self,
+        download_url: str,
+        exit_app: bool = True,
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> Path:
+        """
+        Скачивает установщик MusicVideoStudio_Setup.exe во временную папку,
+        запускает его через subprocess.Popen и завершает текущее приложение.
+        """
+        if not download_url:
+            raise ValueError("Не указана ссылка download_url для скачивания обновления.")
+
+        temp_dir = Path(tempfile.gettempdir())
+        filename = download_url.split("/")[-1] or "MusicVideoStudio_Setup.exe"
+        if not filename.lower().endswith(".exe"):
+            filename = "MusicVideoStudio_Setup.exe"
+        installer_path = temp_dir / filename
+
+        if log_cb:
+            log_cb(f"[UPDATE] Скачивание установщика: {download_url} -> {installer_path}")
+
+        req = urllib.request.Request(
+            download_url,
+            headers={"User-Agent": "MusicVideoStudio-Updater"},
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=300.0) as resp:
+            with open(installer_path, "wb") as f:
+                shutil.copyfileobj(resp, f)
+
+        if log_cb:
+            log_cb(f"[UPDATE] Запуск установщика {installer_path}...")
+
+        # Освобождаем дочерние процессы перед обновлением
+        self.stop_ace_server()
+
+        creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen([str(installer_path)], close_fds=True, creationflags=creationflags)
+
+        if exit_app:
+            os._exit(0)
+
+        return installer_path

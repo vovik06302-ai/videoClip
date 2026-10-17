@@ -48,6 +48,16 @@
       align-items: center;
       gap: 8px;
     }
+    .update-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
     main {
       max-width: 1440px;
       margin: 0 auto;
@@ -111,15 +121,19 @@
       transition: background 0.15s;
     }
     button:hover { background: var(--accent-hover); }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
     button.secondary {
       background: var(--panel-alt);
       border: 1px solid var(--border);
     }
-    button.secondary:hover { background: #334155; }
+    button.secondary:hover:not(:disabled) { background: #334155; }
     button.danger { background: var(--danger); }
-    button.danger:hover { background: #dc2626; }
+    button.danger:hover:not(:disabled) { background: #dc2626; }
     button.success { background: var(--success); }
-    button.success:hover { background: #059669; }
+    button.success:hover:not(:disabled) { background: #059669; }
     .row {
       display: flex;
       gap: 8px;
@@ -184,11 +198,18 @@
   <header>
     <div class="brand">MusicVideoStudio — Локальная ИИ-студия музыкальных клипов</div>
     <div class="toolbar">
-      <input type="text" id="projectInput" placeholder="Имя проекта" style="width: 180px;" />
+      <input type="text" id="projectInput" placeholder="Имя проекта" style="width: 165px;" />
       <button class="secondary" onclick="openProject()">Открыть проект</button>
       <button class="secondary" onclick="startAce()">Запустить ACE API</button>
-      <button class="danger" onclick="stopAce()">Остановить ACE API (освободить VRAM)</button>
-      <button class="secondary" onclick="checkGpu()">Проверить GPU / ComfyUI</button>
+      <button class="danger" onclick="stopAce()">Остановить ACE API (VRAM)</button>
+      <button class="secondary" onclick="checkGpu()">Проверить GPU</button>
+
+      <!-- Блок проверки и установки обновлений с GitHub -->
+      <div class="update-bar">
+        <span id="versionStatusText" class="mono">Установлена: v1.0.0 | Доступна: не проверено</span>
+        <button class="secondary" onclick="checkUpdates()" style="padding: 5px 10px; font-size: 12px;">Проверить обновления</button>
+        <button id="installUpdateBtn" class="success" onclick="installUpdate()" disabled style="padding: 5px 10px; font-size: 12px;">Скачать и обновить</button>
+      </div>
     </div>
   </header>
 
@@ -270,7 +291,7 @@
     <section>
       <div class="card">
         <h2>2. Раскадровка, нарезка аудио и рендер сцен (Wan2.2 + FFmpeg)</h2>
-        <div id="gpuStatusBox" class="gpu-bar">Статус серверов ComfyUI: нажмите «Проверить GPU / ComfyUI»</div>
+        <div id="gpuStatusBox" class="gpu-bar">Статус серверов ComfyUI: нажмите «Проверить GPU»</div>
 
         <div class="row">
           <select id="presetSelect" style="width: 170px;"></select>
@@ -310,6 +331,8 @@
 
   <script>
     let sceneTypesMap = {};
+    let currentVersion = "1.0.0";
+    let latestUpdateInfo = null;
 
     async function api(path, method = "GET", body = null) {
       const opts = { method, headers: {} };
@@ -327,6 +350,39 @@
       return 4 * k + 1;
     }
 
+    async function checkUpdates() {
+      const statusEl = document.getElementById("versionStatusText");
+      const installBtn = document.getElementById("installUpdateBtn");
+      statusEl.textContent = `Установлена: v${currentVersion} | Проверка на GitHub...`;
+
+      const res = await api("/api/update/check");
+      if (!res.ok) {
+        statusEl.textContent = `Установлена: v${currentVersion} | Ошибка проверки`;
+        return;
+      }
+      latestUpdateInfo = res;
+      currentVersion = res.current_version || currentVersion;
+
+      if (res.update_available) {
+        statusEl.textContent = `Установлена: v${res.current_version} | Доступна: v${res.latest_version} (Есть обновление!)`;
+        statusEl.style.color = "#34d399";
+        installBtn.disabled = false;
+      } else {
+        statusEl.textContent = `Установлена: v${res.current_version} | Доступна: v${res.latest_version} (Актуальная)`;
+        statusEl.style.color = "#f1f5f9";
+        installBtn.disabled = true;
+      }
+      await refreshState(false);
+    }
+
+    async function installUpdate() {
+      if (!latestUpdateInfo || !latestUpdateInfo.download_url) return;
+      const statusEl = document.getElementById("versionStatusText");
+      statusEl.textContent = "Скачивание MusicVideoStudio_Setup.exe и запуск установщика...";
+      document.getElementById("installUpdateBtn").disabled = true;
+      await api("/api/update/install", "POST", { download_url: latestUpdateInfo.download_url });
+    }
+
     async function refreshState(fullFormUpdate = false) {
       const data = await api("/api/state");
       if (!data.ok) return;
@@ -334,6 +390,11 @@
       sceneTypesMap = data.scene_types || {};
       const st = data.state;
       const cfg = data.config;
+      if (data.version && !latestUpdateInfo) {
+        currentVersion = data.version;
+        document.getElementById("versionStatusText").textContent =
+          `Установлена: v${currentVersion} | Доступна: не проверено`;
+      }
 
       if (fullFormUpdate) {
         document.getElementById("projectInput").value = st.project_name || "default_project";

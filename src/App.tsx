@@ -12,7 +12,8 @@ import {
   Settings,
   FileCode,
   RefreshCw,
-  FolderOpen
+  FolderOpen,
+  ArrowUpCircle
 } from 'lucide-react';
 
 import corePyRaw from '../core.py?raw';
@@ -36,6 +37,9 @@ interface SceneItem {
   custom_image: string;
   status: 'ожидание' | 'рендер' | 'готово' | 'ошибка';
 }
+
+const APP_VERSION = '1.0.0';
+const GITHUB_REPO = 'vovik06302-ai/videoClip';
 
 const SCENE_TYPE_LABELS: Record<SceneType, string> = {
   'lip-sync': 'Синхронизация губ (вокал)',
@@ -133,6 +137,15 @@ export default function App() {
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
 
+  // Updater State
+  const [updateStatusText, setUpdateStatusText] = useState<string>(
+    `Установлена версия: v${APP_VERSION} | Доступна: не проверено`
+  );
+  const [updateAvailable, setUpdateAvailable] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string>('');
+  const [releaseNotes, setReleaseNotes] = useState<string>('');
+  const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
+
   // Project & Config State
   const [projectName, setProjectName] = useState('cyber_cat_clip');
   const [aceDir, setAceDir] = useState('C:\\AI\\ACE-Step-1.5');
@@ -192,12 +205,109 @@ export default function App() {
   });
 
   const [logs, setLogs] = useState<string[]>([
+    `[INFO] Инициализация MusicVideoStudio v${APP_VERSION}: self.config инициализирован до load_config().`,
     '[INFO] Открыт проект "cyber_cat_clip": длительность трека (FFprobe) 28.450 сек, сцен: 6',
     '[GPU] Сервер http://127.0.0.1:8188 ОНЛАЙН — NVIDIA GeForce RTX 4090 (Свободно VRAM: 21.40 / 24.00 ГБ)'
   ]);
 
   const appendLog = (msg: string) => {
     setLogs((prev) => [...prev, msg]);
+  };
+
+  // Real GitHub Releases API check against vovik06302-ai/videoClip
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true);
+    setUpdateStatusText(`Установлена: v${APP_VERSION} | Проверка на GitHub...`);
+    appendLog(
+      `[UPDATE] Запрос GET https://api.github.com/repos/${GITHUB_REPO}/releases/latest (User-Agent: MusicVideoStudio-Updater)...`
+    );
+
+    try {
+      const resp = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: {
+          Accept: 'application/vnd.github+json'
+        }
+      });
+
+      if (resp.status === 404) {
+        setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${APP_VERSION} (Актуальная)`);
+        setUpdateAvailable(false);
+        appendLog('[UPDATE] В репозитории пока нет опубликованных релизов (HTTP 404). Установлена актуальная версия.');
+        setCheckingUpdate(false);
+        return;
+      }
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const rawTag = String(data.tag_name || '').trim();
+      const latest = rawTag.replace(/^[vV]/, '') || APP_VERSION;
+      const notes = String(data.body || '');
+      const assets = Array.isArray(data.assets) ? data.assets : [];
+
+      const parseVer = (v: string) =>
+        v
+          .split('.')
+          .map((n) => parseInt(n, 10) || 0);
+      const vLat = parseVer(latest);
+      const vCur = parseVer(APP_VERSION);
+      let isNewer = false;
+      for (let i = 0; i < Math.max(vLat.length, vCur.length); i++) {
+        const a = vLat[i] || 0;
+        const b = vCur[i] || 0;
+        if (a > b) {
+          isNewer = true;
+          break;
+        }
+        if (a < b) break;
+      }
+
+      let foundUrl = '';
+      for (const pref of ['MusicVideoStudio_Setup.exe', 'MusicVideoStudio_Desktop.exe']) {
+        const match = assets.find((a: { name?: string }) => a && a.name === pref);
+        if (match && match.browser_download_url) {
+          foundUrl = match.browser_download_url;
+          break;
+        }
+      }
+      if (!foundUrl) {
+        const anyExe = assets.find(
+          (a: { name?: string }) => a && String(a.name || '').toLowerCase().endsWith('.exe')
+        );
+        if (anyExe && anyExe.browser_download_url) {
+          foundUrl = anyExe.browser_download_url;
+        }
+      }
+
+      setDownloadUrl(foundUrl || `https://github.com/${GITHUB_REPO}/releases/latest`);
+      setReleaseNotes(notes);
+      setUpdateAvailable(isNewer);
+
+      if (isNewer) {
+        setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${latest} (Есть обновление!)`);
+        appendLog(`[UPDATE] Найдено обновление v${latest}! Установщик: ${foundUrl || 'см. страницу релиза'}`);
+      } else {
+        setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${latest} (Актуальная)`);
+        appendLog(`[UPDATE] Установлена актуальная версия v${APP_VERSION} (на GitHub: v${latest}).`);
+      }
+    } catch (err) {
+      setUpdateStatusText(`Установлена: v${APP_VERSION} | Доступна: v${APP_VERSION} (Актуальная)`);
+      appendLog(`[UPDATE] Проверка завершена (${String(err)}). Текущая версия: v${APP_VERSION}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = () => {
+    const targetUrl =
+      downloadUrl ||
+      `https://github.com/${GITHUB_REPO}/releases/latest/download/MusicVideoStudio_Setup.exe`;
+    appendLog(
+      `[UPDATE] download_and_install_update("${targetUrl}") -> скачивание в %TEMP%\\MusicVideoStudio_Setup.exe и запуск subprocess.Popen...`
+    );
+    setUpdateStatusText('Скачивание MusicVideoStudio_Setup.exe во временную папку...');
   };
 
   const handleStopAce = () => {
@@ -402,463 +512,510 @@ export default function App() {
       </header>
 
       {activeView === 'studio' ? (
-        <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Project, ACE-Step 1.5, VRAM Settings */}
-          <div className="lg:col-span-4 space-y-5">
-            {/* Project & Server Control */}
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
-                <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-blue-400" />
-                  Проект и управление VRAM
-                </h2>
-                <span className="text-xs text-slate-400 font-mono tabular-nums">
-                  projects/{projectName}
-                </span>
-              </div>
+        <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-5 flex flex-col gap-5">
+          {/* Top Workspace Strip: Program Update Bar (GitHub Releases: vovik06302-ai/videoClip) */}
+          <section className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ArrowUpCircle className="w-4 h-4 text-blue-400 shrink-0" />
+              <span className="text-xs font-semibold text-slate-200">Обновление программы:</span>
+              <span
+                className={`text-xs font-mono tabular-nums ${
+                  updateAvailable ? 'text-emerald-400 font-semibold' : 'text-slate-300'
+                }`}
+              >
+                {updateStatusText}
+              </span>
+              <span className="text-xs text-slate-500 hidden sm:inline">·</span>
+              <span className="text-xs text-slate-400 font-mono hidden sm:inline">
+                GitHub: {GITHUB_REPO}
+              </span>
+            </div>
 
-              <div className="flex gap-2 mb-3">
-                <input
-                  type="text"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-slate-100"
-                  placeholder="Имя папки проекта"
-                />
-                <button
-                  onClick={() =>
-                    appendLog(
-                      `[INFO] Проект "${projectName}" синхронизирован: проверены audio/song.mp3, data/storyboard.json и clips/scene_XXX.mp4`
-                    )
-                  }
-                  className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap shrink-0"
-                >
-                  Открыть проект
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCheckForUpdates}
+                disabled={checkingUpdate}
+                className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-md whitespace-nowrap shrink-0"
+              >
+                {checkingUpdate ? 'Проверка...' : 'Проверить обновления'}
+              </button>
+              <button
+                onClick={handleInstallUpdate}
+                disabled={!updateAvailable}
+                className="px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-md whitespace-nowrap shrink-0 transition-colors"
+              >
+                Скачать и обновить
+              </button>
+            </div>
+          </section>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleStartAce}
-                  className="px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md flex items-center justify-center gap-1.5 whitespace-nowrap"
-                >
-                  <Play className="w-3.5 h-3.5 text-emerald-400" />
-                  Запустить ACE API
-                </button>
-                <button
-                  onClick={handleStopAce}
-                  className="px-3 py-2 text-xs font-medium bg-rose-950/70 hover:bg-rose-900/80 text-rose-200 border border-rose-800/60 rounded-md flex items-center justify-center gap-1.5 whitespace-nowrap"
-                >
-                  <Square className="w-3.5 h-3.5 text-rose-400" />
-                  Остановить ACE API
-                </button>
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-slate-800/80 text-xs text-slate-400 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span>ACE-Step 1.5 (127.0.0.1:8001):</span>
-                  <span className={aceOnline ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
-                    {aceOnline ? 'Онлайн (модель в VRAM)' : 'Остановлен (VRAM свободна)'}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Project, ACE-Step 1.5, VRAM Settings */}
+            <div className="lg:col-span-4 space-y-5">
+              {/* Project & Server Control */}
+              <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                  <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-blue-400" />
+                    Проект и управление VRAM
+                  </h2>
+                  <span className="text-xs text-slate-400 font-mono tabular-nums">
+                    projects/{projectName}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={comfy8188Online}
-                      onChange={(e) => setComfy8188Online(e.target.checked)}
-                    />
-                    ComfyUI #1 (8188 · GPU 0)
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={comfy8189Online}
-                      onChange={(e) => setComfy8189Online(e.target.checked)}
-                    />
-                    ComfyUI #2 (8189 · GPU 1)
-                  </label>
-                </div>
-              </div>
-            </section>
 
-            {/* Step 1: ACE-Step 1.5 Song & FFprobe */}
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-800 pb-2.5 mb-3 flex items-center gap-2">
-                <Music className="w-4 h-4 text-blue-400" />
-                1. Генерация песни (ACE-Step 1.5) и FFprobe
-              </h2>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    Теги стиля (Prompt для acestep-v15-turbo)
-                  </label>
+                <div className="flex gap-2 mb-3">
                   <input
                     type="text"
-                    value={musicPrompt}
-                    onChange={(e) => setMusicPrompt(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-slate-100"
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-slate-100"
+                    placeholder="Имя папки проекта"
                   />
+                  <button
+                    onClick={() =>
+                      appendLog(
+                        `[INFO] Проект "${projectName}" синхронизирован: проверены audio/song.mp3, data/storyboard.json и clips/scene_XXX.mp4`
+                      )
+                    }
+                    className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap shrink-0"
+                  >
+                    Открыть проект
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    Текст песни (Lyrics — /format_input с acestep-5Hz-lm-0.6B)
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={lyrics}
-                    onChange={(e) => setLyrics(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono text-slate-100"
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleStartAce}
+                    className="px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Play className="w-3.5 h-3.5 text-emerald-400" />
+                    Запустить ACE API
+                  </button>
+                  <button
+                    onClick={handleStopAce}
+                    className="px-3 py-2 text-xs font-medium bg-rose-950/70 hover:bg-rose-900/80 text-rose-200 border border-rose-800/60 rounded-md flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Square className="w-3.5 h-3.5 text-rose-400" />
+                    Остановить ACE API
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      Точная длительность (сек)
+                <div className="mt-3 pt-3 border-t border-slate-800/80 text-xs text-slate-400 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span>ACE-Step 1.5 (127.0.0.1:8001):</span>
+                    <span className={aceOnline ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
+                      {aceOnline ? 'Онлайн (модель в VRAM)' : 'Остановлен (VRAM свободна)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={comfy8188Online}
+                        onChange={(e) => setComfy8188Online(e.target.checked)}
+                      />
+                      ComfyUI #1 (8188 · GPU 0)
                     </label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={songDuration}
-                      onChange={(e) => setSongDuration(Number(e.target.value) || 30)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono tabular-nums text-slate-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">Seed</label>
-                    <input
-                      type="number"
-                      value={songSeed}
-                      onChange={(e) => setSongSeed(Number(e.target.value) || 42)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono tabular-nums text-slate-100"
-                    />
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={comfy8189Online}
+                        onChange={(e) => setComfy8189Online(e.target.checked)}
+                      />
+                      ComfyUI #2 (8189 · GPU 1)
+                    </label>
                   </div>
                 </div>
+              </section>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={handleGenerateLyrics}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
-                  >
-                    Сгенерировать текст
-                  </button>
-                  <button
-                    onClick={handleGenerateSong}
-                    className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md whitespace-nowrap"
-                  >
-                    Сгенерировать трек
-                  </button>
-                  <button
-                    onClick={handleProbeAudio}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
-                  >
-                    FFprobe тест
-                  </button>
-                </div>
+              {/* Step 1: ACE-Step 1.5 Song & FFprobe */}
+              <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-800 pb-2.5 mb-3 flex items-center gap-2">
+                  <Music className="w-4 h-4 text-blue-400" />
+                  1. Генерация песни (ACE-Step 1.5) и FFprobe
+                </h2>
 
-                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
-                      Аудиофайл проекта (audio/song.mp3)
+                      Теги стиля (Prompt для acestep-v15-turbo)
                     </label>
                     <input
                       type="text"
-                      value={songPath}
-                      onChange={(e) => setSongPath(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 text-xs font-mono text-slate-300"
+                      value={musicPrompt}
+                      onChange={(e) => setMusicPrompt(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Текст песни (Lyrics — /format_input с acestep-5Hz-lm-0.6B)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={lyrics}
+                      onChange={(e) => setLyrics(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono text-slate-100"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Точная длительность (сек)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={songDuration}
+                        onChange={(e) => setSongDuration(Number(e.target.value) || 30)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono tabular-nums text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Seed</label>
+                      <input
+                        type="number"
+                        value={songSeed}
+                        onChange={(e) => setSongSeed(Number(e.target.value) || 42)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-md px-3 py-1.5 text-xs font-mono tabular-nums text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={handleGenerateLyrics}
+                      className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
+                    >
+                      Сгенерировать текст
+                    </button>
+                    <button
+                      onClick={handleGenerateSong}
+                      className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md whitespace-nowrap"
+                    >
+                      Сгенерировать трек
+                    </button>
+                    <button
+                      onClick={handleProbeAudio}
+                      className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
+                    >
+                      FFprobe тест
+                    </button>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Аудиофайл проекта (audio/song.mp3)
+                      </label>
+                      <input
+                        type="text"
+                        value={songPath}
+                        onChange={(e) => setSongPath(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 text-xs font-mono text-slate-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Изображение главного героя (передаётся только в сцены lip-sync)
+                      </label>
+                      <input
+                        type="text"
+                        value={heroImage}
+                        onChange={(e) => setHeroImage(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 text-xs font-mono text-slate-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Step 3: Paths, VRAM Config & Updates */}
+              <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-800 pb-2.5 mb-3 flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-blue-400" />
+                  3. Настройки путей, VRAM и Обновление
+                </h2>
+
+                <div className="space-y-2.5 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1">ace_dir</label>
+                    <input
+                      type="text"
+                      value={aceDir}
+                      onChange={(e) => setAceDir(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      Изображение главного героя (передаётся только в сцены lip-sync)
+                    <label className="block text-slate-400 mb-1">comfy_root</label>
+                    <input
+                      type="text"
+                      value={comfyRoot}
+                      onChange={(e) => setComfyRoot(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      workflow_lipsync (Wan2.2 Sound-to-Video)
                     </label>
                     <input
                       type="text"
-                      value={heroImage}
-                      onChange={(e) => setHeroImage(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 text-xs font-mono text-slate-300"
+                      value={wfLipsync}
+                      onChange={(e) => setWfLipsync(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
                     />
                   </div>
-                </div>
-              </div>
-            </section>
-
-            {/* Step 3: Paths & VRAM Config */}
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-800 pb-2.5 mb-3 flex items-center gap-2">
-                <Settings className="w-4 h-4 text-blue-400" />
-                3. Настройки путей и VRAM (config.json)
-              </h2>
-
-              <div className="space-y-2.5 text-xs">
-                <div>
-                  <label className="block text-slate-400 mb-1">ace_dir</label>
-                  <input
-                    type="text"
-                    value={aceDir}
-                    onChange={(e) => setAceDir(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">comfy_root</label>
-                  <input
-                    type="text"
-                    value={comfyRoot}
-                    onChange={(e) => setComfyRoot(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    workflow_lipsync (Wan2.2 Sound-to-Video)
-                  </label>
-                  <input
-                    type="text"
-                    value={wfLipsync}
-                    onChange={(e) => setWfLipsync(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    workflow_broll (Wan2.2 I2V/T2V без синхронизации губ)
-                  </label>
-                  <input
-                    type="text"
-                    value={wfBroll}
-                    onChange={(e) => setWfBroll(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
-                  />
-                </div>
-
-                <div className="pt-2 flex items-center justify-between gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-200">
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      workflow_broll (Wan2.2 I2V/T2V без синхронизации губ)
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={lowVram}
-                      onChange={(e) => setLowVram(e.target.checked)}
+                      type="text"
+                      value={wfBroll}
+                      onChange={(e) => setWfBroll(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1 font-mono text-slate-200"
                     />
-                    Флаг <code className="text-blue-400">--lowvram</code> (для 12 ГБ VRAM)
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400">--reserve-vram:</span>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-between gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={lowVram}
+                        onChange={(e) => setLowVram(e.target.checked)}
+                      />
+                      Флаг <code className="text-blue-400">--lowvram</code> (для 12 ГБ VRAM)
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">--reserve-vram:</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={reserveVram}
+                        onChange={(e) => setReserveVram(Number(e.target.value))}
+                        className="w-16 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 font-mono tabular-nums text-right"
+                      />
+                      <span className="text-slate-500">ГБ</span>
+                    </div>
+                  </div>
+
+                  {releaseNotes && (
+                    <div className="pt-2 border-t border-slate-800 text-slate-400">
+                      <div className="font-semibold text-slate-300 mb-1">Примечания к релизу:</div>
+                      <div className="bg-slate-950 p-2 rounded border border-slate-800 font-mono text-[11px] max-h-24 overflow-y-auto">
+                        {releaseNotes}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            {/* Right Column: Storyboard Table, Queue & Logs */}
+            <div className="lg:col-span-8 flex flex-col gap-5">
+              <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex-1 flex flex-col">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3 mb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                      <Film className="w-4 h-4 text-blue-400" />
+                      2. Раскадровка сцен (Wan2.2: разделение lip-sync / b-roll и контроль 4k+1 кадров)
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Промпты для энкодера UMT5 — строго на английском языке · При сборке каждый клип обрезается до{' '}
+                      <code className="text-slate-300">-t duration -r 24</code> для устранения рассинхрона
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={presetName}
+                      onChange={(e) => {
+                        const val = e.target.value as 'cyber_cat' | 'sea_voyage';
+                        setPresetName(val);
+                        handleRebuildStoryboard(val, sceneDuration);
+                      }}
+                      className="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-200"
+                    >
+                      <option value="cyber_cat">Пресет: Cyber Cat</option>
+                      <option value="sea_voyage">Пресет: Sea Voyage</option>
+                    </select>
+
                     <input
                       type="number"
                       step="0.5"
-                      value={reserveVram}
-                      onChange={(e) => setReserveVram(Number(e.target.value))}
-                      className="w-16 bg-slate-950 border border-slate-800 rounded px-2 py-0.5 font-mono tabular-nums text-right"
+                      value={sceneDuration}
+                      onChange={(e) => setSceneDuration(Number(e.target.value) || 5.0)}
+                      className="w-16 bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-xs font-mono tabular-nums text-slate-200"
+                      title="Длительность сцены (сек)"
                     />
-                    <span className="text-slate-500">ГБ</span>
+
+                    <button
+                      onClick={() => handleRebuildStoryboard(presetName, sceneDuration)}
+                      className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
+                    >
+                      Создать раскадровку
+                    </button>
                   </div>
                 </div>
-              </div>
-            </section>
-          </div>
 
-          {/* Right Column: Storyboard Table, Queue & Logs */}
-          <div className="lg:col-span-8 flex flex-col gap-5">
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex-1 flex flex-col">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3 mb-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                    <Film className="w-4 h-4 text-blue-400" />
-                    2. Раскадровка сцен (Wan2.2: разделение lip-sync / b-roll и контроль 4k+1 кадров)
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Промпты для энкодера UMT5 — строго на английском языке · При сборке каждый клип обрезается до{' '}
-                    <code className="text-slate-300">-t duration -r 24</code> для устранения рассинхрона
-                  </p>
-                </div>
+                {/* Action Toolbar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3 bg-slate-950/70 border border-slate-800/80 rounded-md p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleSliceAudio}
+                      className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                      Нарезать WAV (16kHz mono)
+                    </button>
 
-                <div className="flex items-center gap-2">
-                  <select
-                    value={presetName}
-                    onChange={(e) => {
-                      const val = e.target.value as 'cyber_cat' | 'sea_voyage';
-                      setPresetName(val);
-                      handleRebuildStoryboard(val, sceneDuration);
-                    }}
-                    className="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-xs text-slate-200"
-                  >
-                    <option value="cyber_cat">Пресет: Cyber Cat</option>
-                    <option value="sea_voyage">Пресет: Sea Voyage</option>
-                  </select>
+                    <button
+                      onClick={handleQueueAll}
+                      className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      В очередь ComfyUI ({comfy8188Online && comfy8189Online ? '2 GPU: шаг 2' : '1 GPU: шаг 1'})
+                    </button>
 
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={sceneDuration}
-                    onChange={(e) => setSceneDuration(Number(e.target.value) || 5.0)}
-                    className="w-16 bg-slate-950 border border-slate-800 rounded-md px-2 py-1.5 text-xs font-mono tabular-nums text-slate-200"
-                    title="Длительность сцены (сек)"
-                  />
-
-                  <button
-                    onClick={() => handleRebuildStoryboard(presetName, sceneDuration)}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md whitespace-nowrap"
-                  >
-                    Создать раскадровку
-                  </button>
-                </div>
-              </div>
-
-              {/* Action Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-3 bg-slate-950/70 border border-slate-800/80 rounded-md p-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handleSliceAudio}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <Scissors className="w-3.5 h-3.5 text-amber-400" />
-                    Нарезать WAV (16kHz mono)
-                  </button>
-
-                  <button
-                    onClick={handleQueueAll}
-                    className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white rounded-md flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <Cpu className="w-3.5 h-3.5" />
-                    В очередь ComfyUI ({comfy8188Online && comfy8189Online ? '2 GPU: шаг 2' : '1 GPU: шаг 1'})
-                  </button>
-
-                  <label className="flex items-center gap-1.5 text-xs text-slate-300 ml-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={skipCompleted}
-                      onChange={(e) => setSkipCompleted(e.target.checked)}
-                    />
-                    Пропускать готовые сцены
-                  </label>
-                </div>
-
-                <button
-                  onClick={handleAssemble}
-                  className="px-3.5 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-md flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <Film className="w-3.5 h-3.5" />
-                  Финальная сборка MP4 (CRF 18)
-                </button>
-              </div>
-
-              {/* High-Density Data Grid */}
-              <div className="overflow-x-auto flex-1">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/50">
-                      <th className="py-2.5 px-2.5 font-medium w-10">#</th>
-                      <th className="py-2.5 px-2.5 font-medium w-44">Тип сцены (RU метка)</th>
-                      <th className="py-2.5 px-2.5 font-medium w-28">Таймкод</th>
-                      <th className="py-2.5 px-2.5 font-medium w-28">Wan кадры (4k+1)</th>
-                      <th className="py-2.5 px-2.5 font-medium">Английский промпт (UMT5)</th>
-                      <th className="py-2.5 px-2.5 font-medium w-24">Статус</th>
-                      <th className="py-2.5 px-2.5 font-medium w-32 text-right">Действие</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {storyboard.map((sc) => {
-                      const wanFrames = calcWanFrames(sc.duration, 24);
-                      const rawWanDur = (wanFrames / 24).toFixed(3);
-                      return (
-                        <tr key={sc.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-2.5 px-2.5 font-mono tabular-nums text-slate-400">
-                            {String(sc.id).padStart(2, '0')}
-                          </td>
-                          <td className="py-2.5 px-2.5">
-                            <select
-                              value={sc.type}
-                              onChange={(e) =>
-                                handleUpdateScene(sc.id, 'type', e.target.value as SceneType)
-                              }
-                              className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200"
-                            >
-                              {Object.entries(SCENE_TYPE_LABELS).map(([k, label]) => (
-                                <option key={k} value={k}>
-                                  {k} · {label}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="text-[11px] text-slate-400 mt-1">
-                              {sc.type === 'lip-sync'
-                                ? 'Герой + WAV вокал -> S2V'
-                                : 'Без портрета героя · звук 0.0'}
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-2.5 font-mono tabular-nums text-slate-300">
-                            <div>
-                              {sc.start.toFixed(2)}s – {sc.end.toFixed(2)}s
-                            </div>
-                            <div className="text-slate-500">Длит.: {sc.duration.toFixed(2)}s</div>
-                          </td>
-                          <td className="py-2.5 px-2.5 font-mono tabular-nums">
-                            <div className="text-slate-200">{wanFrames} кадр.</div>
-                            <div className="text-[11px] text-slate-500">
-                              {rawWanDur}s → {sc.duration.toFixed(2)}s
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-2.5">
-                            <input
-                              type="text"
-                              value={sc.prompt}
-                              onChange={(e) => handleUpdateScene(sc.id, 'prompt', e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
-                            />
-                          </td>
-                          <td className="py-2.5 px-2.5 font-medium">
-                            {sc.status === 'готово' ? (
-                              <span className="text-emerald-400">готово</span>
-                            ) : sc.status === 'рендер' ? (
-                              <span className="text-amber-400">рендер</span>
-                            ) : (
-                              <span className="text-slate-400">ожидание</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-2.5 text-right">
-                            <button
-                              onClick={() => handleRenderSingle(sc.id)}
-                              className="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded inline-flex items-center gap-1 whitespace-nowrap"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Пересоздать
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Pipeline Execution Log */}
-            <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-300">
-                  Журнал команд конвейера (ACE-Step 1.5 / ComfyUI / FFmpeg)
-                </span>
-                <button
-                  onClick={() => setLogs([])}
-                  className="text-xs text-slate-400 hover:text-slate-200"
-                >
-                  Очистить журнал
-                </button>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded-md p-3 h-36 overflow-y-auto font-mono text-xs text-slate-300 space-y-1">
-                {logs.map((line, i) => (
-                  <div key={i} className="leading-relaxed">
-                    {line}
+                    <label className="flex items-center gap-1.5 text-xs text-slate-300 ml-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={skipCompleted}
+                        onChange={(e) => setSkipCompleted(e.target.checked)}
+                      />
+                      Пропускать готовые сцены
+                    </label>
                   </div>
-                ))}
-              </div>
-            </section>
+
+                  <button
+                    onClick={handleAssemble}
+                    className="px-3.5 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-md flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Film className="w-3.5 h-3.5" />
+                    Финальная сборка MP4 (CRF 18)
+                  </button>
+                </div>
+
+                {/* High-Density Data Grid */}
+                <div className="overflow-x-auto flex-1">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/50">
+                        <th className="py-2.5 px-2.5 font-medium w-10">#</th>
+                        <th className="py-2.5 px-2.5 font-medium w-44">Тип сцены (RU метка)</th>
+                        <th className="py-2.5 px-2.5 font-medium w-28">Таймкод</th>
+                        <th className="py-2.5 px-2.5 font-medium w-28">Wan кадры (4k+1)</th>
+                        <th className="py-2.5 px-2.5 font-medium">Английский промпт (UMT5)</th>
+                        <th className="py-2.5 px-2.5 font-medium w-24">Статус</th>
+                        <th className="py-2.5 px-2.5 font-medium w-32 text-right">Действие</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {storyboard.map((sc) => {
+                        const wanFrames = calcWanFrames(sc.duration, 24);
+                        const rawWanDur = (wanFrames / 24).toFixed(3);
+                        return (
+                          <tr key={sc.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-2.5 px-2.5 font-mono tabular-nums text-slate-400">
+                              {String(sc.id).padStart(2, '0')}
+                            </td>
+                            <td className="py-2.5 px-2.5">
+                              <select
+                                value={sc.type}
+                                onChange={(e) =>
+                                  handleUpdateScene(sc.id, 'type', e.target.value as SceneType)
+                                }
+                                className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200"
+                              >
+                                {Object.entries(SCENE_TYPE_LABELS).map(([k, label]) => (
+                                  <option key={k} value={k}>
+                                    {k} · {label}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="text-[11px] text-slate-400 mt-1">
+                                {sc.type === 'lip-sync'
+                                  ? 'Герой + WAV вокал -> S2V'
+                                  : 'Без портрета героя · звук 0.0'}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2.5 font-mono tabular-nums text-slate-300">
+                              <div>
+                                {sc.start.toFixed(2)}s – {sc.end.toFixed(2)}s
+                              </div>
+                              <div className="text-slate-500">Длит.: {sc.duration.toFixed(2)}s</div>
+                            </td>
+                            <td className="py-2.5 px-2.5 font-mono tabular-nums">
+                              <div className="text-slate-200">{wanFrames} кадр.</div>
+                              <div className="text-[11px] text-slate-500">
+                                {rawWanDur}s → {sc.duration.toFixed(2)}s
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2.5">
+                              <input
+                                type="text"
+                                value={sc.prompt}
+                                onChange={(e) => handleUpdateScene(sc.id, 'prompt', e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                              />
+                            </td>
+                            <td className="py-2.5 px-2.5 font-medium">
+                              {sc.status === 'готово' ? (
+                                <span className="text-emerald-400">готово</span>
+                              ) : sc.status === 'рендер' ? (
+                                <span className="text-amber-400">рендер</span>
+                              ) : (
+                                <span className="text-slate-400">ожидание</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-right">
+                              <button
+                                onClick={() => handleRenderSingle(sc.id)}
+                                className="px-2.5 py-1 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 rounded inline-flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                Пересоздать
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Pipeline Execution Log */}
+              <section className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Журнал команд конвейера (ACE-Step 1.5 / ComfyUI / FFmpeg / GitHub Updater)
+                  </span>
+                  <button
+                    onClick={() => setLogs([])}
+                    className="text-xs text-slate-400 hover:text-slate-200"
+                  >
+                    Очистить журнал
+                  </button>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 rounded-md p-3 h-36 overflow-y-auto font-mono text-xs text-slate-300 space-y-1">
+                  {logs.map((line, i) => (
+                    <div key={i} className="leading-relaxed">
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
         </main>
       ) : (
-        /* Source Code Explorer & Downloader for all 6 required files */
+        /* Source Code Explorer & Downloader for all 8 files */
         <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-5 flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-lg p-4">
             <div className="flex flex-wrap items-center gap-2">

@@ -3,15 +3,23 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from core import StudioCore, SCENE_TYPE_LABELS, STORYBOARD_PRESETS, PROJECTS_ROOT
+from typing import Dict, Any, Optional
+from core import (
+    StudioCore,
+    SCENE_TYPE_LABELS,
+    STORYBOARD_PRESETS,
+    PROJECTS_ROOT,
+    APP_VERSION,
+    GITHUB_REPO
+)
 
 
 class MusicVideoStudioApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Локальная ИИ-студия музыкальных клипов (MusicVideoStudio)")
-        self.geometry("1280x860")
-        self.minsize(1100, 740)
+        self.title(f"Локальная ИИ-студия музыкальных клипов (MusicVideoStudio v{APP_VERSION})")
+        self.geometry("1320x880")
+        self.minsize(1140, 760)
 
         style = ttk.Style(self)
         if "vista" in style.theme_names():
@@ -19,6 +27,7 @@ class MusicVideoStudioApp(tk.Tk):
 
         self.core = StudioCore()
         self._selected_scene_id: int = 0
+        self._latest_update_info: Optional[Dict[str, Any]] = None
 
         self._build_ui()
         self._load_state_into_ui()
@@ -27,9 +36,12 @@ class MusicVideoStudioApp(tk.Tk):
     # Построение интерфейса
     # -------------------------------------------------------------------------
     def _build_ui(self) -> None:
-        # Верхняя панель проекта и управления сервисами
-        top_frame = ttk.LabelFrame(self, text="Проект и управление серверами / VRAM", padding=8)
-        top_frame.pack(fill=tk.X, padx=10, pady=(8, 4))
+        # Верхняя панель проекта, сервисов и блока автообновления в правом верхнем углу
+        header_container = ttk.Frame(self)
+        header_container.pack(fill=tk.X, padx=10, pady=(8, 4))
+
+        top_frame = ttk.LabelFrame(header_container, text="Проект и управление серверами / VRAM", padding=8)
+        top_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
         ttk.Label(top_frame, text="Папка проекта:").grid(row=0, column=0, sticky=tk.W, padx=4)
         self.project_var = tk.StringVar(value=self.core.state["project_name"])
@@ -37,18 +49,39 @@ class MusicVideoStudioApp(tk.Tk):
             top_frame,
             textvariable=self.project_var,
             values=self.core.list_projects(),
-            width=24
+            width=20
         )
         self.project_combo.grid(row=0, column=1, padx=4)
 
-        ttk.Button(top_frame, text="Открыть / Загрузить проект", command=self.on_open_project).grid(row=0, column=2, padx=4)
-        ttk.Button(top_frame, text="Выбрать папку...", command=self.on_browse_project_dir).grid(row=0, column=3, padx=4)
+        ttk.Button(top_frame, text="Открыть проект", command=self.on_open_project).grid(row=0, column=2, padx=3)
+        ttk.Button(top_frame, text="Обзор...", command=self.on_browse_project_dir).grid(row=0, column=3, padx=3)
 
-        ttk.Separator(top_frame, orient=tk.VERTICAL).grid(row=0, column=4, sticky=tk.NS, padx=8)
+        ttk.Separator(top_frame, orient=tk.VERTICAL).grid(row=0, column=4, sticky=tk.NS, padx=6)
 
-        ttk.Button(top_frame, text="Запустить ACE API", command=self.on_start_ace).grid(row=0, column=5, padx=4)
-        ttk.Button(top_frame, text="Остановить ACE API (освободить VRAM)", command=self.on_stop_ace).grid(row=0, column=6, padx=4)
-        ttk.Button(top_frame, text="Проверить GPU / ComfyUI", command=self.on_check_gpus).grid(row=0, column=7, padx=4)
+        ttk.Button(top_frame, text="Запустить ACE API", command=self.on_start_ace).grid(row=0, column=5, padx=3)
+        ttk.Button(top_frame, text="Остановить ACE API (освободить VRAM)", command=self.on_stop_ace).grid(row=0, column=6, padx=3)
+        ttk.Button(top_frame, text="Проверить GPU", command=self.on_check_gpus).grid(row=0, column=7, padx=3)
+
+        # Блок «Обновление программы» в правом верхнем углу шапки
+        update_top_frame = ttk.LabelFrame(header_container, text="Обновление программы", padding=8)
+        update_top_frame.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.version_status_var = tk.StringVar(
+            value=f"Установлена версия: v{APP_VERSION} | Доступна: не проверено"
+        )
+        ttk.Label(update_top_frame, textvariable=self.version_status_var, font=("Segoe UI", 9, "bold")).pack(
+            side=tk.LEFT, padx=(4, 8)
+        )
+        ttk.Button(update_top_frame, text="Проверить обновления", command=self.on_check_updates).pack(
+            side=tk.LEFT, padx=3
+        )
+        self.btn_install_update_top = ttk.Button(
+            update_top_frame,
+            text="Скачать и обновить",
+            command=self.on_install_update,
+            state=tk.DISABLED
+        )
+        self.btn_install_update_top.pack(side=tk.LEFT, padx=3)
 
         # Вкладки основного рабочего процесса
         self.notebook = ttk.Notebook(self)
@@ -60,7 +93,7 @@ class MusicVideoStudioApp(tk.Tk):
 
         self.notebook.add(self.tab_song, text="1. Песня и герой (ACE-Step 1.5)")
         self.notebook.add(self.tab_storyboard, text="2. Раскадровка и рендер (ComfyUI + FFmpeg)")
-        self.notebook.add(self.tab_settings, text="3. Настройки путей и VRAM")
+        self.notebook.add(self.tab_settings, text="3. Настройки путей, VRAM и Обновление")
 
         self._build_song_tab()
         self._build_storyboard_tab()
@@ -235,11 +268,11 @@ class MusicVideoStudioApp(tk.Tk):
             ("URL серверов ComfyUI (через запятую):", self.cfg_comfy_urls),
         ]
         for idx, (label_text, var) in enumerate(rows):
-            ttk.Label(form, text=label_text).grid(row=idx, column=0, sticky=tk.W, pady=6, padx=6)
-            ttk.Entry(form, textvariable=var, width=68).grid(row=idx, column=1, sticky=tk.EW, pady=6, padx=6)
+            ttk.Label(form, text=label_text).grid(row=idx, column=0, sticky=tk.W, pady=5, padx=6)
+            ttk.Entry(form, textvariable=var, width=68).grid(row=idx, column=1, sticky=tk.EW, pady=5, padx=6)
 
         vram_frame = ttk.LabelFrame(form, text="Управление видеопамятью (VRAM)", padding=10)
-        vram_frame.grid(row=len(rows), column=0, columnspan=2, sticky=tk.EW, pady=12, padx=6)
+        vram_frame.grid(row=len(rows), column=0, columnspan=2, sticky=tk.EW, pady=10, padx=6)
 
         ttk.Checkbutton(
             vram_frame,
@@ -253,10 +286,34 @@ class MusicVideoStudioApp(tk.Tk):
         ttk.Entry(res_row, textvariable=self.cfg_reserve_vram, width=10).pack(side=tk.LEFT, padx=8)
 
         btn_bar = ttk.Frame(form)
-        btn_bar.grid(row=len(rows) + 1, column=0, columnspan=2, sticky=tk.W, pady=10, padx=6)
+        btn_bar.grid(row=len(rows) + 1, column=0, columnspan=2, sticky=tk.W, pady=8, padx=6)
         ttk.Button(btn_bar, text="Сохранить настройки в config.json", command=self.on_save_settings).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_bar, text="Запустить ComfyUI (8188, GPU 0)", command=lambda: self.on_start_comfy(8188, 0)).pack(side=tk.LEFT, padx=8)
         ttk.Button(btn_bar, text="Запустить ComfyUI #2 (8189, GPU 1)", command=lambda: self.on_start_comfy(8189, 1)).pack(side=tk.LEFT, padx=4)
+
+        # Блок «Обновление программы» на вкладке Настройки
+        upd_frame = ttk.LabelFrame(
+            form,
+            text=f"Обновление программы (GitHub Releases: {GITHUB_REPO})",
+            padding=10
+        )
+        upd_frame.grid(row=len(rows) + 2, column=0, columnspan=2, sticky=tk.EW, pady=10, padx=6)
+
+        ttk.Label(upd_frame, textvariable=self.version_status_var, font=("Segoe UI", 10, "bold")).pack(
+            anchor=tk.W, pady=(0, 6)
+        )
+        upd_btns = ttk.Frame(upd_frame)
+        upd_btns.pack(fill=tk.X)
+        ttk.Button(upd_btns, text="Проверить обновления на GitHub", command=self.on_check_updates).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
+        self.btn_install_update_settings = ttk.Button(
+            upd_btns,
+            text="Скачать и обновить (MusicVideoStudio_Setup.exe)",
+            command=self.on_install_update,
+            state=tk.DISABLED
+        )
+        self.btn_install_update_settings.pack(side=tk.LEFT, padx=4)
 
         form.columnconfigure(1, weight=1)
 
@@ -304,7 +361,80 @@ class MusicVideoStudioApp(tk.Tk):
             self.tree.insert("", tk.END, iid=str(sid), values=(sid, stype, type_ru, tc, dur, frames, status, prompt))
 
     # -------------------------------------------------------------------------
-    # Обработчики событий
+    # Обработчики проверки и установки обновлений с GitHub
+    # -------------------------------------------------------------------------
+    def on_check_updates(self) -> None:
+        self.version_status_var.set(f"Установлена: v{APP_VERSION} | Проверка на GitHub...")
+
+        def _task() -> None:
+            try:
+                info = self.core.check_for_updates(log_cb=self.log)
+                self._latest_update_info = info
+                cur = info.get("current_version", APP_VERSION)
+                lat = info.get("latest_version", APP_VERSION)
+                has_upd = bool(info.get("update_available", False))
+
+                def _update_ui() -> None:
+                    if has_upd:
+                        self.version_status_var.set(
+                            f"Установлена: v{cur} | Доступна: v{lat} (Есть обновление!)"
+                        )
+                        self.btn_install_update_top.configure(state=tk.NORMAL)
+                        self.btn_install_update_settings.configure(state=tk.NORMAL)
+                        notes = info.get("notes") or "Описание изменений отсутствует."
+                        ask = messagebox.askyesno(
+                            "Доступно обновление MusicVideoStudio",
+                            f"Найдена новая версия v{lat} (у вас установлена v{cur}).\n\n"
+                            f"Что нового:\n{notes[:600]}\n\n"
+                            f"Скачать и установить обновление сейчас?"
+                        )
+                        if ask:
+                            self.on_install_update()
+                    else:
+                        self.version_status_var.set(
+                            f"Установлена: v{cur} | Доступна: v{lat} (Актуальная)"
+                        )
+                        self.btn_install_update_top.configure(state=tk.DISABLED)
+                        self.btn_install_update_settings.configure(state=tk.DISABLED)
+
+                self.after(0, _update_ui)
+            except Exception as e:
+                self.log(f"[UPDATE ERROR] {e}")
+                self.after(
+                    0,
+                    lambda: self.version_status_var.set(
+                        f"Установлена: v{APP_VERSION} | Ошибка проверки"
+                    )
+                )
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def on_install_update(self) -> None:
+        info = self._latest_update_info or {}
+        dl_url = str(info.get("download_url", "")).strip()
+        if not dl_url:
+            messagebox.showwarning(
+                "Файл установщика не найден",
+                "В релизе на GitHub не найден файл MusicVideoStudio_Setup.exe.\n"
+                f"Откройте страницу релизов вручную:\nhttps://github.com/{GITHUB_REPO}/releases"
+            )
+            return
+
+        self.version_status_var.set("Скачивание обновления... Приложение перезапустится автоматически.")
+        self.btn_install_update_top.configure(state=tk.DISABLED)
+        self.btn_install_update_settings.configure(state=tk.DISABLED)
+
+        def _task() -> None:
+            try:
+                self.core.download_and_install_update(dl_url, exit_app=True, log_cb=self.log)
+            except Exception as e:
+                self.log(f"[UPDATE ERROR] Ошибка при скачивании/запуске обновления: {e}")
+                self.after(0, lambda: messagebox.showerror("Ошибка обновления", str(e)))
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    # -------------------------------------------------------------------------
+    # Обработчики событий конвейера
     # -------------------------------------------------------------------------
     def on_open_project(self) -> None:
         name = self.project_var.get().strip() or "default_project"
@@ -350,7 +480,7 @@ class MusicVideoStudioApp(tk.Tk):
 
         def _task() -> None:
             try:
-                res = self.core.generate_lyrics_ace(prompt, lyrics_hint, log_cb=self.log)
+                self.core.generate_lyrics_ace(prompt, lyrics_hint, log_cb=self.log)
                 self.after(0, self._load_state_into_ui)
             except Exception as e:
                 self.log(f"[ERROR] {e}")
