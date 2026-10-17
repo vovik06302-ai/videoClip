@@ -100,7 +100,7 @@ STORYBOARD_PRESETS: Dict[str, List[Dict[str, str]]] = {
 
 class StudioCore:
     def __init__(self) -> None:
-        self.config: Dict[str, Any] = self.load_config()
+        self.config: Dict[str, Any] = dict(DEFAULT_CONFIG)
         PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
         self.ace_process: Optional[subprocess.Popen] = None
         self.comfy_processes: Dict[int, subprocess.Popen] = {}
@@ -117,6 +117,8 @@ class StudioCore:
             },
             "storyboard": []
         }
+        self.load_config()
+        self.open_project(self.state["project_name"])
 
     # -------------------------------------------------------------------------
     # Конфигурация и управление проектами
@@ -130,12 +132,16 @@ class StudioCore:
                     cfg.update(loaded)
             except Exception:
                 pass
-        self.save_config(cfg)
-        return cfg
+        self.config = cfg
+        self.save_config()
+        return self.config
 
     def save_config(self, new_cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if not hasattr(self, "config") or not isinstance(self.config, dict):
+            self.config = dict(DEFAULT_CONFIG)
         if new_cfg is not None:
             self.config.update(new_cfg)
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(
             json.dumps(self.config, ensure_ascii=False, indent=2),
             encoding="utf-8"

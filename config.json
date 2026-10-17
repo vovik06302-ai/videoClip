@@ -1,0 +1,16 @@
+{
+  "ace_dir": "C:\\AI\\ACE-Step-1.5",
+  "comfy_root": "C:\\AI\\ComfyUI_windows_portable",
+  "workflow_lipsync": "C:\\AI\\wan2.2_s2v_api.json",
+  "workflow_broll": "C:\\AI\\wan2.2_i2v_api.json",
+  "ace_url": "http://127.0.0.1:8001",
+  "comfy_urls": [
+    "http://127.0.0.1:8188",
+    "http://127.0.0.1:8189"
+  ],
+  "lowvram": false,
+  "reserve_vram": 2.0,
+  "fps": 24,
+  "default_scene_duration": 5.0,
+  "skip_completed": true
+}
