@@ -156,6 +156,8 @@ class StudioCore:
         }
         self.load_config()
         self.open_project(self.state["project_name"])
+        if not self.state.get("storyboard"):
+            self.generate_storyboard_from_preset("cyber_cat")
 
     # -------------------------------------------------------------------------
     # Конфигурация и управление проектами

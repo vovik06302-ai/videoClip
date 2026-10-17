@@ -4,335 +4,720 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MusicVideoStudio — Локальная ИИ-студия музыкальных клипов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0b0f19;
-      --panel: #111827;
-      --panel-alt: #1e293b;
-      --border: #334155;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --danger: #ef4444;
-      --success: #10b981;
-      --warning: #f59e0b;
+      --bg-canvas: #020617;
+      --bg-card: #0f172a;
+      --bg-input: #020617;
+      --bg-btn-sec: #1e293b;
+      --bg-btn-sec-hover: #334155;
+      --border: #1e293b;
+      --border-focus: #3b82f6;
+      --text-main: #f1f5f9;
+      --text-sub: #cbd5e1;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --blue: #2563eb;
+      --blue-hover: #3b82f6;
+      --blue-icon: #60a5fa;
+      --emerald: #059669;
+      --emerald-hover: #10b981;
+      --emerald-text: #34d399;
+      --amber-text: #fbbf24;
+      --rose-bg: rgba(76, 5, 25, 0.7);
+      --rose-bg-hover: rgba(136, 19, 55, 0.8);
+      --rose-border: rgba(159, 18, 57, 0.6);
+      --rose-text: #fecdd3;
+      --rose-icon: #fb7185;
     }
-    * { box-sizing: border-box; }
-    body {
+
+    * {
+      box-sizing: border-box;
       margin: 0;
-      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      font-size: 14px;
-      line-height: 1.5;
+      padding: 0;
     }
+
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .mono {
+      font-family: 'IBM Plex Mono', Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Top Header */
     header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 14px 24px;
+      background: rgba(15, 23, 42, 0.92);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .nav-tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 2px 0 4px 0;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+
+    .nav-tab:hover {
+      color: var(--text-main);
+    }
+
+    .nav-tab.active {
+      color: var(--text-main);
+      border-bottom-color: #3b82f6;
+    }
+
+    /* Main Workspace Container */
+    .workspace {
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      flex: 1;
+    }
+
+    /* Top Update Strip */
+    .update-strip {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
+    }
+
+    .update-left {
+      display: flex;
+      align-items: center;
       gap: 12px;
-      padding: 14px 22px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-    }
-    .brand {
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    .toolbar {
-      display: flex;
       flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-    }
-    .update-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: #0f172a;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 5px 10px;
       font-size: 12px;
     }
-    main {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 18px 22px;
+
+    .update-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 12-Column Grid (4 Left + 8 Right) */
+    .grid-layout {
       display: grid;
-      grid-template-columns: 380px 1fr;
-      gap: 18px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 24px;
+      align-items: start;
     }
+
+    .col-left {
+      grid-column: span 4 / span 4;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .col-right {
+      grid-column: span 8 / span 8;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
     @media (max-width: 1100px) {
-      main { grid-template-columns: 1fr; }
+      .col-left, .col-right {
+        grid-column: span 12 / span 12;
+      }
     }
+
+    /* Cards */
     .card {
-      background: var(--panel);
+      background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 16px;
-      margin-bottom: 16px;
     }
-    .card h2 {
-      margin: 0 0 12px 0;
-      font-size: 15px;
-      font-weight: 600;
-      color: #e2e8f0;
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
     }
-    label {
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .card-subtitle code {
+      color: var(--text-sub);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    /* Form Controls */
+    label.field-label {
       display: block;
       font-size: 12px;
-      color: var(--muted);
+      color: var(--text-muted);
       margin-bottom: 4px;
-      margin-top: 10px;
     }
+
     input[type="text"],
     input[type="number"],
     select,
     textarea {
       width: 100%;
-      background: #0f172a;
-      color: var(--text);
+      background: var(--bg-input);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 8px 10px;
-      font-size: 13px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text-main);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--border-focus);
+    }
+
+    textarea {
+      font-family: 'IBM Plex Mono', Consolas, monospace;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s, opacity 0.15s;
+      color: var(--text-main);
       font-family: inherit;
     }
-    textarea {
-      resize: vertical;
-      min-height: 110px;
-      font-family: Consolas, monospace;
-    }
-    button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 13px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    button:hover { background: var(--accent-hover); }
-    button:disabled {
+
+    .btn:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
-    button.secondary {
-      background: var(--panel-alt);
-      border: 1px solid var(--border);
+
+    .btn-secondary {
+      background: var(--bg-btn-sec);
+      color: #e2e8f0;
     }
-    button.secondary:hover:not(:disabled) { background: #334155; }
-    button.danger { background: var(--danger); }
-    button.danger:hover:not(:disabled) { background: #dc2626; }
-    button.success { background: var(--success); }
-    button.success:hover:not(:disabled) { background: #059669; }
-    .row {
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--bg-btn-sec-hover);
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--blue-hover);
+    }
+
+    .btn-emerald {
+      background: var(--emerald);
+      color: #ffffff;
+    }
+
+    .btn-emerald:hover:not(:disabled) {
+      background: var(--emerald-hover);
+    }
+
+    .btn-rose {
+      background: var(--rose-bg);
+      border-color: var(--rose-border);
+      color: var(--rose-text);
+    }
+
+    .btn-rose:hover:not(:disabled) {
+      background: var(--rose-bg-hover);
+    }
+
+    /* Action Sub-Toolbar inside Storyboard */
+    .sub-toolbar {
       display: flex;
-      gap: 8px;
-      align-items: center;
       flex-wrap: wrap;
-      margin-top: 10px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(2, 6, 23, 0.7);
+      border: 1px solid rgba(30, 41, 59, 0.85);
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 12px;
     }
-    .row-2col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
+
+    /* Table */
+    .table-wrap {
+      overflow-x: auto;
     }
+
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
-      margin-top: 10px;
-    }
-    th, td {
-      border-bottom: 1px solid var(--border);
-      padding: 9px 8px;
       text-align: left;
+      font-size: 12px;
+    }
+
+    thead tr {
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      background: rgba(2, 6, 23, 0.5);
+    }
+
+    th {
+      padding: 10px;
+      font-weight: 500;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid rgba(30, 41, 59, 0.7);
+      transition: background-color 0.15s;
+    }
+
+    tbody tr:hover {
+      background: rgba(30, 41, 59, 0.3);
+    }
+
+    td {
+      padding: 10px;
       vertical-align: top;
     }
-    th {
-      color: var(--muted);
-      font-weight: 600;
-      background: #0f172a;
+
+    .status-ready {
+      color: var(--emerald-text);
+      font-weight: 500;
     }
-    tr:hover { background: rgba(255, 255, 255, 0.03); }
-    .mono {
-      font-family: Consolas, "IBM Plex Mono", monospace;
-      font-variant-numeric: tabular-nums;
+
+    .status-render {
+      color: var(--amber-text);
+      font-weight: 500;
     }
+
+    .status-error {
+      color: #f87171;
+      font-weight: 500;
+    }
+
+    .status-wait {
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* Logs */
     .log-box {
-      background: #050811;
+      background: var(--bg-input);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 10px;
-      height: 190px;
+      padding: 12px;
+      height: 155px;
       overflow-y: auto;
-      font-family: Consolas, monospace;
+      font-family: 'IBM Plex Mono', Consolas, monospace;
       font-size: 12px;
-      color: #cbd5e1;
+      color: var(--text-sub);
+      line-height: 1.55;
       white-space: pre-wrap;
     }
-    .status-ready { color: #34d399; font-weight: 600; }
-    .status-render { color: #fbbf24; font-weight: 600; }
-    .status-error { color: #f87171; font-weight: 600; }
-    .status-wait { color: #94a3b8; }
-    .gpu-bar {
-      font-size: 12px;
-      color: var(--muted);
-      padding: 6px 10px;
-      background: #0f172a;
-      border: 1px solid var(--border);
-      border-radius: 6px;
+
+    .icon-svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+    }
+
+    .icon-sm {
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
+  <!-- Top Bar -->
   <header>
-    <div class="brand">MusicVideoStudio — Локальная ИИ-студия музыкальных клипов</div>
-    <div class="toolbar">
-      <input type="text" id="projectInput" placeholder="Имя проекта" style="width: 165px;" />
-      <button class="secondary" onclick="openProject()">Открыть проект</button>
-      <button class="secondary" onclick="startAce()">Запустить ACE API</button>
-      <button class="danger" onclick="stopAce()">Остановить ACE API (VRAM)</button>
-      <button class="secondary" onclick="checkGpu()">Проверить GPU</button>
-
-      <!-- Блок проверки и установки обновлений с GitHub -->
-      <div class="update-bar">
-        <span id="versionStatusText" class="mono">Установлена: v1.0.0 | Доступна: не проверено</span>
-        <button class="secondary" onclick="checkUpdates()" style="padding: 5px 10px; font-size: 12px;">Проверить обновления</button>
-        <button id="installUpdateBtn" class="success" onclick="installUpdate()" disabled style="padding: 5px 10px; font-size: 12px;">Скачать и обновить</button>
-      </div>
+    <a href="#top" class="brand">MusicVideoStudio</a>
+    <nav class="nav-tabs">
+      <button class="nav-tab active" onclick="scrollToSection('top')">Студия и конвейер</button>
+      <button class="nav-tab" onclick="scrollToSection('settingsCard')">Настройки и VRAM (config.json)</button>
+    </nav>
+    <div>
+      <button class="btn btn-primary" onclick="checkGpu()">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+        </svg>
+        Проверить GPU / ComfyUI
+      </button>
     </div>
   </header>
 
-  <main>
-    <!-- Левая колонка: Песня, Аудио и Настройки -->
-    <section>
-      <div class="card">
-        <h2>1. Генерация песни (ACE-Step 1.5)</h2>
-        <label>Музыкальный стиль / теги (Prompt)</label>
-        <input type="text" id="songPrompt" />
-
-        <label>Текст песни (Lyrics)</label>
-        <textarea id="songLyrics"></textarea>
-
-        <div class="row-2col">
-          <div>
-            <label>Длительность (сек)</label>
-            <input type="number" step="0.1" id="songDuration" />
-          </div>
-          <div>
-            <label>Seed</label>
-            <input type="number" id="songSeed" />
-          </div>
-        </div>
-
-        <div class="row">
-          <button class="secondary" onclick="generateLyrics()">Сгенерировать текст</button>
-          <button onclick="generateSong()">Сгенерировать песню</button>
-          <button class="secondary" onclick="saveSongParams()">Сохранить</button>
-        </div>
-
-        <label>Путь к готовому аудиофайлу (авто-FFprobe)</label>
-        <div class="row" style="margin-top: 4px;">
-          <input type="text" id="songPath" placeholder="C:\path\to\song.mp3" style="flex:1;" />
-          <button class="secondary" onclick="setAudioFile()">Загрузить и проверить FFprobe</button>
-        </div>
-        <div id="probedDurationText" class="mono" style="margin-top: 8px; color: #38bdf8; font-weight: 600;">
-          Точная длительность (FFprobe): 0.000 сек
-        </div>
-
-        <label>Портрет главного героя (для сцен lip-sync)</label>
-        <input type="text" id="heroImage" placeholder="C:\AI\assets\hero_cat.png" onchange="saveSongParams()" />
+  <main class="workspace" id="top">
+    <!-- Top Update Strip -->
+    <section class="update-strip">
+      <div class="update-left">
+        <svg class="icon-svg" style="color: var(--blue-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/>
+        </svg>
+        <span style="font-weight: 600; color: #e2e8f0;">Обновление программы:</span>
+        <span id="versionStatusText" class="mono" style="color: var(--emerald-text); font-weight: 600;">
+          Установлена: v1.0.0 | Доступна: не проверено
+        </span>
+        <span style="color: var(--text-dim);">·</span>
+        <span id="repoLabel" class="mono" style="color: var(--text-muted);">GitHub: vovik06302-ai/videoClip</span>
       </div>
-
-      <div class="card">
-        <h2>3. Настройки путей и VRAM (config.json)</h2>
-        <label>Папка ACE-Step 1.5 (ace_dir)</label>
-        <input type="text" id="cfgAceDir" />
-
-        <label>Папка ComfyUI Portable (comfy_root)</label>
-        <input type="text" id="cfgComfyRoot" />
-
-        <label>Шаблон Lip-Sync S2V (workflow_lipsync)</label>
-        <input type="text" id="cfgWfLipsync" />
-
-        <label>Шаблон B-Roll I2V/T2V (workflow_broll)</label>
-        <input type="text" id="cfgWfBroll" />
-
-        <label>URL серверов ComfyUI (через запятую)</label>
-        <input type="text" id="cfgComfyUrls" />
-
-        <div class="row" style="margin-top: 12px;">
-          <input type="checkbox" id="cfgLowVram" style="width: auto;" />
-          <span style="font-size: 13px;">Флаг <code>--lowvram</code> (для 12 ГБ VRAM; выкл. для 24 ГБ)</span>
-        </div>
-
-        <label>Резерв видеопамяти <code>--reserve-vram</code> (ГБ)</label>
-        <input type="number" step="0.5" id="cfgReserveVram" />
-
-        <div class="row">
-          <button onclick="saveConfig()">Сохранить config.json</button>
-          <button class="secondary" onclick="startComfy(8188, 0)">Запуск Comfy 8188</button>
-          <button class="secondary" onclick="startComfy(8189, 1)">Запуск Comfy 8189</button>
-        </div>
+      <div class="update-right">
+        <button id="checkUpdateBtn" class="btn btn-secondary" onclick="checkUpdates()">Проверить обновления</button>
+        <button id="installUpdateBtn" class="btn btn-emerald" onclick="installUpdate()" disabled>Скачать и обновить</button>
       </div>
     </section>
 
-    <!-- Правая колонка: Раскадровка, управление сценами, очередь ComfyUI и сборка -->
-    <section>
-      <div class="card">
-        <h2>2. Раскадровка, нарезка аудио и рендер сцен (Wan2.2 + FFmpeg)</h2>
-        <div id="gpuStatusBox" class="gpu-bar">Статус серверов ComfyUI: нажмите «Проверить GPU»</div>
+    <!-- Main 12-Column Grid -->
+    <div class="grid-layout">
+      <!-- Left Column (4 cols) -->
+      <div class="col-left">
+        <!-- Project & VRAM Control -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">
+              <svg class="icon-svg" style="color: var(--blue-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Проект и управление VRAM
+            </h2>
+            <span id="projectSlugLabel" class="mono" style="font-size: 12px; color: var(--text-muted);">projects/default_project</span>
+          </div>
 
-        <div class="row">
-          <select id="presetSelect" style="width: 170px;"></select>
-          <input type="number" step="0.5" id="sceneDurationInput" value="5.0" style="width: 95px;" title="Длина сцены (сек)" />
-          <button class="secondary" onclick="createStoryboard()">Создать раскадровку</button>
-          <button class="secondary" onclick="sliceAudio()">Нарезать аудио (16kHz WAV)</button>
-          <label style="display:flex; align-items:center; gap:6px; margin:0; color:var(--text);">
-            <input type="checkbox" id="skipCompletedCheck" checked style="width:auto;" />
-            Пропускать готовые сцены
-          </label>
-          <button onclick="queueAllScenes()">Отправить все сцены в ComfyUI</button>
-          <button class="success" onclick="assembleVideo()">Собрать финальный MP4</button>
-        </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <input type="text" id="projectInput" placeholder="Имя папки проекта" />
+            <button class="btn btn-secondary" onclick="openProject()">Открыть проект</button>
+          </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 42px;">#</th>
-              <th style="width: 170px;">Тип сцены</th>
-              <th style="width: 120px;">Таймкод</th>
-              <th style="width: 90px;">Кадры (4k+1)</th>
-              <th>Английский промпт (UMT5 Wan2.2)</th>
-              <th style="width: 95px;">Статус</th>
-              <th style="width: 130px;">Действие</th>
-            </tr>
-          </thead>
-          <tbody id="storyboardBody"></tbody>
-        </table>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button class="btn btn-secondary" style="padding: 8px 12px;" onclick="startAce()">
+              <svg class="icon-sm" style="color: var(--emerald-text);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              Запустить ACE API
+            </button>
+            <button class="btn btn-rose" style="padding: 8px 12px;" onclick="stopAce()">
+              <svg class="icon-sm" style="color: var(--rose-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+              </svg>
+              Остановить ACE API
+            </button>
+          </div>
+
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span>ACE-Step 1.5 (127.0.0.1:8001):</span>
+              <span id="aceStatusLabel" style="color: var(--emerald-text); font-weight: 500;">Готов к работе</span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <label style="display: flex; align-items: center; gap: 6px; color: var(--text-sub); cursor: pointer;">
+                <input type="checkbox" id="gpu0Check" checked onchange="updateGpuLabel()" />
+                ComfyUI #1 (8188 · GPU 0)
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; color: var(--text-sub); cursor: pointer;">
+                <input type="checkbox" id="gpu1Check" onchange="updateGpuLabel()" />
+                ComfyUI #2 (8189 · GPU 1)
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- 1. Song Generation & FFprobe -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">
+              <svg class="icon-svg" style="color: var(--blue-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+              </svg>
+              1. Генерация песни (ACE-Step 1.5) и FFprobe
+            </h2>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div>
+              <label class="field-label">Теги стиля (Prompt для acestep-v15-turbo)</label>
+              <input type="text" id="songPrompt" />
+            </div>
+
+            <div>
+              <label class="field-label">Текст песни (Lyrics — /format_input с acestep-5Hz-lm-0.6B)</label>
+              <textarea id="songLyrics" rows="4"></textarea>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div>
+                <label class="field-label">Точная длительность (сек)</label>
+                <input type="number" step="0.05" id="songDuration" class="mono" />
+              </div>
+              <div>
+                <label class="field-label">Seed</label>
+                <input type="number" id="songSeed" class="mono" />
+              </div>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <button class="btn btn-secondary" onclick="generateLyrics()">Сгенерировать текст</button>
+              <button class="btn btn-primary" onclick="generateSong()">Сгенерировать трек</button>
+              <button class="btn btn-secondary" onclick="setAudioFile()">FFprobe тест</button>
+              <button class="btn btn-secondary" onclick="saveSongParams()">Сохранить</button>
+            </div>
+
+            <div style="padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+              <div>
+                <label class="field-label">Аудиофайл проекта (audio/song.mp3)</label>
+                <input type="text" id="songPath" class="mono" placeholder="C:\path\to\song.mp3" />
+              </div>
+              <div>
+                <label class="field-label">Изображение главного героя (передаётся только в сцены lip-sync)</label>
+                <input type="text" id="heroImage" class="mono" placeholder="C:\AI\assets\hero_cat.png" onchange="saveSongParams()" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. Settings & VRAM -->
+        <section class="card" id="settingsCard">
+          <div class="card-header">
+            <h2 class="card-title">
+              <svg class="icon-svg" style="color: var(--blue-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              3. Настройки путей, VRAM и Обновление
+            </h2>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div>
+              <label class="field-label">ace_dir</label>
+              <input type="text" id="cfgAceDir" class="mono" />
+            </div>
+            <div>
+              <label class="field-label">comfy_root</label>
+              <input type="text" id="cfgComfyRoot" class="mono" />
+            </div>
+            <div>
+              <label class="field-label">workflow_lipsync (Wan2.2 Sound-to-Video)</label>
+              <input type="text" id="cfgWfLipsync" class="mono" />
+            </div>
+            <div>
+              <label class="field-label">workflow_broll (Wan2.2 I2V/T2V без синхронизации губ)</label>
+              <input type="text" id="cfgWfBroll" class="mono" />
+            </div>
+            <div>
+              <label class="field-label">comfy_urls (через запятую)</label>
+              <input type="text" id="cfgComfyUrls" class="mono" />
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 6px; font-size: 12px;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-sub);">
+                <input type="checkbox" id="cfgLowVram" />
+                Флаг <code style="color: var(--blue-icon);">--lowvram</code> (для 12 ГБ VRAM)
+              </label>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--text-muted);">--reserve-vram:</span>
+                <input type="number" step="0.5" id="cfgReserveVram" class="mono" style="width: 64px; text-align: right;" />
+                <span style="color: var(--text-dim);">ГБ</span>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px;">
+              <button class="btn btn-primary" onclick="saveConfig()">Сохранить config.json</button>
+              <button class="btn btn-secondary" onclick="startComfy(8188, 0)">Запуск Comfy 8188</button>
+              <button class="btn btn-secondary" onclick="startComfy(8189, 1)">Запуск Comfy 8189</button>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <div class="card">
-        <h2>Журнал выполнения конвейера</h2>
-        <div id="logBox" class="log-box"></div>
+      <!-- Right Column (8 cols) -->
+      <div class="col-right">
+        <section class="card" style="flex: 1; display: flex; flex-direction: column;">
+          <!-- Header with Preset Controls -->
+          <div class="card-header" style="flex-wrap: wrap; align-items: flex-start;">
+            <div>
+              <h2 class="card-title">
+                <svg class="icon-svg" style="color: var(--blue-icon);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4"/>
+                </svg>
+                2. Раскадровка сцен (Wan2.2: разделение lip-sync / b-roll и контроль 4k+1 кадров)
+              </h2>
+              <p class="card-subtitle">
+                Промпты для энкодера UMT5 — строго на английском языке · При сборке каждый клип обрезается до <code>-t duration -r 24</code> для устранения рассинхрона
+              </p>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+              <select id="presetSelect" style="width: 165px;"></select>
+              <input type="number" step="0.5" id="sceneDurationInput" value="5" class="mono" style="width: 64px;" title="Длительность сцены (сек)" />
+              <button class="btn btn-secondary" onclick="createStoryboard()">Создать раскадровку</button>
+            </div>
+          </div>
+
+          <!-- Action Sub-Toolbar -->
+          <div class="sub-toolbar">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+              <button class="btn btn-secondary" onclick="sliceAudio()">
+                <svg class="icon-sm" style="color: var(--amber-text);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>
+                </svg>
+                Нарезать WAV (16kHz mono)
+              </button>
+
+              <button class="btn btn-primary" onclick="queueAllScenes()">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+                </svg>
+                <span id="queueBtnText">В очередь ComfyUI (1 GPU: шаг 1)</span>
+              </button>
+
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-sub); margin-left: 6px; cursor: pointer;">
+                <input type="checkbox" id="skipCompletedCheck" checked />
+                Пропускать готовые сцены
+              </label>
+            </div>
+
+            <button class="btn btn-emerald" onclick="assembleVideo()">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4"/>
+              </svg>
+              Финальная сборка MP4 (CRF 18)
+            </button>
+          </div>
+
+          <!-- High-Density Storyboard Table -->
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 38px;">#</th>
+                  <th style="width: 185px;">Тип сцены (RU метка)</th>
+                  <th style="width: 115px;">Таймкод</th>
+                  <th style="width: 115px;">Wan кадры (4k+1)</th>
+                  <th>Английский промпт (UMT5)</th>
+                  <th style="width: 85px;">Статус</th>
+                  <th style="width: 125px; text-align: right;">Действие</th>
+                </tr>
+              </thead>
+              <tbody id="storyboardBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Pipeline Execution Log -->
+        <section class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 600; color: var(--text-sub);">
+              Журнал команд конвейера (ACE-Step 1.5 / ComfyUI / FFmpeg / GitHub Updater)
+            </span>
+            <button onclick="clearLogs()" style="background: transparent; border: none; color: var(--text-muted); font-size: 12px; cursor: pointer;">
+              Очистить журнал
+            </button>
+          </div>
+          <div id="logBox" class="log-box"></div>
+        </section>
       </div>
-    </section>
+    </div>
   </main>
 
   <script>
     let sceneTypesMap = {};
     let currentVersion = "1.0.0";
     let latestUpdateInfo = null;
+    let localLogCleared = false;
+
+    function scrollToSection(id) {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }
+
+    function updateGpuLabel() {
+      const g0 = document.getElementById("gpu0Check").checked;
+      const g1 = document.getElementById("gpu1Check").checked;
+      const btnText = document.getElementById("queueBtnText");
+      btnText.textContent = (g0 && g1)
+        ? "В очередь ComfyUI (2 GPU: шаг 2)"
+        : "В очередь ComfyUI (1 GPU: шаг 1)";
+    }
+
+    function clearLogs() {
+      document.getElementById("logBox").textContent = "";
+      localLogCleared = true;
+    }
 
     async function api(path, method = "GET", body = null) {
       const opts = { method, headers: {} };
@@ -369,9 +754,10 @@
         installBtn.disabled = false;
       } else {
         statusEl.textContent = `Установлена: v${res.current_version} | Доступна: v${res.latest_version} (Актуальная)`;
-        statusEl.style.color = "#f1f5f9";
+        statusEl.style.color = "#cbd5e1";
         installBtn.disabled = true;
       }
+      localLogCleared = false;
       await refreshState(false);
     }
 
@@ -390,11 +776,17 @@
       sceneTypesMap = data.scene_types || {};
       const st = data.state;
       const cfg = data.config;
+
       if (data.version && !latestUpdateInfo) {
         currentVersion = data.version;
         document.getElementById("versionStatusText").textContent =
           `Установлена: v${currentVersion} | Доступна: не проверено`;
       }
+      if (data.github_repo) {
+        document.getElementById("repoLabel").textContent = `GitHub: ${data.github_repo}`;
+      }
+
+      document.getElementById("projectSlugLabel").textContent = `projects/${st.project_name || "default_project"}`;
 
       if (fullFormUpdate) {
         document.getElementById("projectInput").value = st.project_name || "default_project";
@@ -419,19 +811,18 @@
         (data.presets || []).forEach(p => {
           const opt = document.createElement("option");
           opt.value = p;
-          opt.textContent = p;
+          opt.textContent = p === "cyber_cat" ? "Пресет: Cyber Cat" : p === "sea_voyage" ? "Пресет: Sea Voyage" : `Пресет: ${p}`;
           presetSel.appendChild(opt);
         });
       }
 
-      document.getElementById("probedDurationText").textContent =
-        `Точная длительность (FFprobe): ${Number(st.song_duration || 0).toFixed(3)} сек`;
-
       renderStoryboardTable(st.storyboard || [], cfg.fps || 24);
 
-      const logEl = document.getElementById("logBox");
-      logEl.textContent = (data.logs || []).join("\n");
-      logEl.scrollTop = logEl.scrollHeight;
+      if (!localLogCleared) {
+        const logEl = document.getElementById("logBox");
+        logEl.textContent = (data.logs || []).join("\n");
+        logEl.scrollTop = logEl.scrollHeight;
+      }
     }
 
     function renderStoryboardTable(storyboard, fps) {
@@ -440,32 +831,49 @@
 
       storyboard.forEach(scene => {
         const tr = document.createElement("tr");
-        const frames = calcWanFrames(Number(scene.duration || 5), fps);
+        const dur = Number(scene.duration || 5);
+        const frames = calcWanFrames(dur, fps);
+        const rawWanDur = (frames / fps).toFixed(3);
+        const sidPad = String(scene.id).padStart(2, "0");
+
         const statusClass =
           scene.status === "готово" ? "status-ready" :
           scene.status === "рендер" ? "status-render" :
           scene.status === "ошибка" ? "status-error" : "status-wait";
 
         const typeOptions = Object.entries(sceneTypesMap).map(([key, label]) =>
-          `<option value="${key}" ${scene.type === key ? "selected" : ""}>${key} — ${label}</option>`
+          `<option value="${key}" ${scene.type === key ? "selected" : ""}>${key} · ${label}</option>`
         ).join("");
 
+        const subHint = scene.type === "lip-sync"
+          ? "Герой + WAV вокал -> S2V"
+          : "Без портрета героя · звук 0.0";
+
         tr.innerHTML = `
-          <td class="mono">${scene.id}</td>
+          <td class="mono" style="color: var(--text-muted);">${sidPad}</td>
           <td>
-            <select onchange="updateScene(${scene.id}, this.value, null)">
+            <select onchange="updateScene(${scene.id}, this.value, null)" style="padding: 4px 8px;">
               ${typeOptions}
             </select>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">${subHint}</div>
           </td>
-          <td class="mono">${Number(scene.start).toFixed(2)}s – ${Number(scene.end).toFixed(2)}s<br/><small>${Number(scene.duration).toFixed(2)}s</small></td>
-          <td class="mono">${frames} кадр.</td>
+          <td class="mono" style="color: var(--text-sub);">
+            <div>${Number(scene.start).toFixed(2)}s – ${Number(scene.end).toFixed(2)}s</div>
+            <div style="color: var(--text-dim);">Длит.: ${dur.toFixed(2)}s</div>
+          </td>
+          <td class="mono">
+            <div style="color: var(--text-main);">${frames} кадр.</div>
+            <div style="font-size: 11px; color: var(--text-dim);">${rawWanDur}s → ${dur.toFixed(2)}s</div>
+          </td>
           <td>
             <input type="text" value="${(scene.prompt || "").replace(/"/g, "&quot;")}"
                    onchange="updateScene(${scene.id}, null, this.value)" />
           </td>
           <td class="${statusClass}">${scene.status || "ожидание"}</td>
-          <td>
-            <button class="secondary" onclick="renderSingleScene(${scene.id})">Пересоздать сцену</button>
+          <td style="text-align: right;">
+            <button class="btn btn-secondary" style="padding: 4px 10px;" onclick="renderSingleScene(${scene.id})">
+              ↻ Пересоздать
+            </button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -473,28 +881,42 @@
     }
 
     async function openProject() {
+      localLogCleared = false;
       const name = document.getElementById("projectInput").value.trim() || "default_project";
       await api("/api/project/open", "POST", { project_name: name });
       await refreshState(true);
     }
 
-    async function startAce() { await api("/api/ace/start", "POST", {}); await refreshState(); }
-    async function stopAce() { await api("/api/ace/stop", "POST", {}); await refreshState(); }
+    async function startAce() {
+      localLogCleared = false;
+      document.getElementById("aceStatusLabel").textContent = "Онлайн (модель в VRAM)";
+      document.getElementById("aceStatusLabel").style.color = "#34d399";
+      await api("/api/ace/start", "POST", {});
+      await refreshState();
+    }
+
+    async function stopAce() {
+      localLogCleared = false;
+      document.getElementById("aceStatusLabel").textContent = "Остановлен (VRAM свободна)";
+      document.getElementById("aceStatusLabel").style.color = "#64748b";
+      await api("/api/ace/stop", "POST", {});
+      await refreshState();
+    }
 
     async function checkGpu() {
+      localLogCleared = false;
       const res = await api("/api/gpu_status");
-      const box = document.getElementById("gpuStatusBox");
-      if (res.servers && res.servers.length > 0) {
-        box.textContent = "Онлайн GPU ComfyUI: " + res.servers.map(
-          s => `${s.url} (${s.gpu_name}, свободно ${s.vram_free_gb}/${s.vram_total_gb} ГБ VRAM)`
-        ).join(" | ");
-      } else {
-        box.textContent = "Серверы ComfyUI (8188/8189) сейчас офлайн.";
+      if (res.servers) {
+        const urls = res.servers.map(s => s.url);
+        document.getElementById("gpu0Check").checked = urls.some(u => u.includes("8188"));
+        document.getElementById("gpu1Check").checked = urls.some(u => u.includes("8189"));
+        updateGpuLabel();
       }
       await refreshState();
     }
 
     async function saveSongParams() {
+      localLogCleared = false;
       await api("/api/song/save_params", "POST", {
         prompt: document.getElementById("songPrompt").value,
         lyrics: document.getElementById("songLyrics").value,
@@ -506,6 +928,7 @@
     }
 
     async function setAudioFile() {
+      localLogCleared = false;
       const path = document.getElementById("songPath").value.trim();
       if (!path) return;
       await api("/api/song/set_file", "POST", { path });
@@ -513,6 +936,7 @@
     }
 
     async function generateLyrics() {
+      localLogCleared = false;
       await api("/api/song/generate_lyrics", "POST", {
         prompt: document.getElementById("songPrompt").value,
         lyrics: document.getElementById("songLyrics").value
@@ -521,6 +945,7 @@
     }
 
     async function generateSong() {
+      localLogCleared = false;
       await api("/api/song/generate_audio", "POST", {
         prompt: document.getElementById("songPrompt").value,
         lyrics: document.getElementById("songLyrics").value,
@@ -531,6 +956,7 @@
     }
 
     async function createStoryboard() {
+      localLogCleared = false;
       await api("/api/storyboard/generate", "POST", {
         preset: document.getElementById("presetSelect").value,
         scene_duration: Number(document.getElementById("sceneDurationInput").value || 5.0)
@@ -539,6 +965,7 @@
     }
 
     async function updateScene(id, typeVal, promptVal) {
+      localLogCleared = false;
       const payload = { id };
       if (typeVal !== null) payload.type = typeVal;
       if (promptVal !== null) payload.prompt = promptVal;
@@ -547,27 +974,32 @@
     }
 
     async function sliceAudio() {
+      localLogCleared = false;
       await api("/api/audio/slice", "POST", {});
       await refreshState();
     }
 
     async function renderSingleScene(id) {
+      localLogCleared = false;
       await api("/api/comfy/render_scene", "POST", { id });
       await refreshState();
     }
 
     async function queueAllScenes() {
+      localLogCleared = false;
       const skip = document.getElementById("skipCompletedCheck").checked;
       await api("/api/comfy/queue_all", "POST", { skip_completed: skip });
       await refreshState();
     }
 
     async function assembleVideo() {
+      localLogCleared = false;
       await api("/api/video/assemble", "POST", { output_name: "final_music_video.mp4" });
       await refreshState();
     }
 
     async function saveConfig() {
+      localLogCleared = false;
       const urls = document.getElementById("cfgComfyUrls").value
         .split(",")
         .map(s => s.trim())
@@ -586,12 +1018,13 @@
     }
 
     async function startComfy(port, gpu_id) {
+      localLogCleared = false;
       await saveConfig();
       await api("/api/comfy/start", "POST", { port, gpu_id });
       await refreshState();
     }
 
-    refreshState(true);
+    refreshState(true).then(() => checkUpdates());
     setInterval(() => refreshState(false), 3000);
   </script>
 </body>

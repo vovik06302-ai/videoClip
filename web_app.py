@@ -283,9 +283,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    import webbrowser
     studio.open_project(studio.state["project_name"], log_cb=append_log)
+    if not studio.state.get("storyboard"):
+        studio.generate_storyboard_from_preset("cyber_cat", log_cb=append_log)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), StudioRequestHandler)
-    append_log(f"[WEB] Веб-сервер MusicVideoStudio v{APP_VERSION} запущен: http://127.0.0.1:{PORT}")
+    url = f"http://127.0.0.1:{PORT}"
+    append_log(f"[WEB] Веб-сервер MusicVideoStudio v{APP_VERSION} запущен: {url}")
+    threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
