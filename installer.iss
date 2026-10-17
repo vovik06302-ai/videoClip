@@ -17,10 +17,11 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}/releases
-DefaultDirName={autopf}\{#MyAppName}
+; Устанавливаем в пользовательскую папку %LOCALAPPDATA%\Programs\MusicVideoStudio без запроса прав администратора
+DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppTitle}
 DisableProgramGroupPage=yes
-; Разрешаем установку без прав администратора в профиль пользователя при необходимости
+PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=Output
 OutputBaseFilename=MusicVideoStudio_Setup
@@ -42,8 +43,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "dist\MusicVideoStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
-; Создаём папку projects с полными правами на запись для пользователя
-Name: "{app}\projects"; Permissions: users-modify
+; Создаём папку projects в рабочей директории приложения
+Name: "{app}\projects"
 
 [Icons]
 ; Ярлыки в меню «Пуск»

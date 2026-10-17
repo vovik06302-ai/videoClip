@@ -19,15 +19,45 @@ GITHUB_REPO = "vovik06302-ai/videoClip"
 # BUNDLE_DIR — для чтения вшитых в PyInstaller ресурсов (например, папки web)
 BUNDLE_DIR: Path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
-# APP_DIR — для записи и чтения изменяемых данных рядом с .exe (config.json и папка projects)
+# APP_DIR — папка, где находится сам исполняемый .exe (или core.py)
 APP_DIR: Path = (
     Path(sys.executable).resolve().parent
     if getattr(sys, "frozen", False)
     else Path(__file__).resolve().parent
 )
 
-CONFIG_PATH: Path = APP_DIR / "config.json"
-PROJECTS_ROOT: Path = APP_DIR / "projects"
+
+def _resolve_writable_data_dir() -> Path:
+    """
+    Проверяет наличие прав на запись в APP_DIR (путём os.access и пробного создания временного файла).
+    Если программа установлена в защищённую системную директорию (например, C:\\Program Files)
+    и запись запрещена (PermissionError), автоматически переключается на пользовательскую папку
+    %LOCALAPPDATA%\\MusicVideoStudio.
+    """
+    if os.access(APP_DIR, os.W_OK):
+        test_file = APP_DIR / f".write_test_{os.getpid()}.tmp"
+        try:
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            return APP_DIR
+        except (PermissionError, OSError):
+            pass
+
+    fallback_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "MusicVideoStudio"
+    try:
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir
+    except Exception:
+        temp_fallback = Path(tempfile.gettempdir()) / "MusicVideoStudio"
+        temp_fallback.mkdir(parents=True, exist_ok=True)
+        return temp_fallback
+
+
+DATA_DIR: Path = _resolve_writable_data_dir()
+CONFIG_FILE: Path = DATA_DIR / "config.json"
+CONFIG_PATH: Path = CONFIG_FILE
+PROJECTS_DIR: Path = DATA_DIR / "projects"
+PROJECTS_ROOT: Path = PROJECTS_DIR
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "ace_dir": r"C:\AI\ACE-Step-1.5",
@@ -105,7 +135,10 @@ STORYBOARD_PRESETS: Dict[str, List[Dict[str, str]]] = {
 class StudioCore:
     def __init__(self) -> None:
         self.config: Dict[str, Any] = dict(DEFAULT_CONFIG)
-        PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+        try:
+            PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            pass
         self.ace_process: Optional[subprocess.Popen] = None
         self.comfy_processes: Dict[int, subprocess.Popen] = {}
         self.state: Dict[str, Any] = {
@@ -141,15 +174,36 @@ class StudioCore:
         return self.config
 
     def save_config(self, new_cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        global DATA_DIR, CONFIG_FILE, CONFIG_PATH, PROJECTS_DIR, PROJECTS_ROOT
         if not hasattr(self, "config") or not isinstance(self.config, dict):
             self.config = dict(DEFAULT_CONFIG)
         if new_cfg is not None:
             self.config.update(new_cfg)
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(
-            json.dumps(self.config, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        try:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_PATH.write_text(
+                json.dumps(self.config, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+        except PermissionError:
+            # Аварийное переключение на %LOCALAPPDATA%\MusicVideoStudio при отказе в доступе
+            fallback = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "MusicVideoStudio"
+            try:
+                fallback.mkdir(parents=True, exist_ok=True)
+                DATA_DIR = fallback
+                CONFIG_FILE = DATA_DIR / "config.json"
+                CONFIG_PATH = CONFIG_FILE
+                PROJECTS_DIR = DATA_DIR / "projects"
+                PROJECTS_ROOT = PROJECTS_DIR
+                PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+                CONFIG_PATH.write_text(
+                    json.dumps(self.config, ensure_ascii=False, indent=2),
+                    encoding="utf-8"
+                )
+            except Exception:
+                pass
+        except OSError:
+            pass
         return self.config
 
     def get_project_dir(self, project_name: Optional[str] = None) -> Path:
