@@ -45,9 +45,96 @@ class MusicVideoStudioApp(tk.Tk):
         self._latest_update_info: Optional[Dict[str, Any]] = None
 
         self._build_ui()
+        self._setup_clipboard_and_context_menu()
         self._load_state_into_ui()
         # Автоматическая проверка обновлений при запуске
         self.after(600, lambda: self.on_check_updates(silent_if_current=True))
+
+    # -------------------------------------------------------------------------
+    # Поддержка Ctrl+V / Ctrl+C / Ctrl+X / Ctrl+A на русской раскладке и ПКМ-меню
+    # -------------------------------------------------------------------------
+    def _setup_clipboard_and_context_menu(self) -> None:
+        self._ctx_target: Optional[tk.Widget] = None
+        self._context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=BG_CARD,
+            fg=TEXT_MAIN,
+            activebackground=BLUE_PRIMARY,
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9)
+        )
+        self._context_menu.add_command(label="Вставить (Ctrl+V)", command=lambda: self._trigger_ctx_action("<<Paste>>"))
+        self._context_menu.add_command(label="Копировать (Ctrl+C)", command=lambda: self._trigger_ctx_action("<<Copy>>"))
+        self._context_menu.add_command(label="Вырезать (Ctrl+X)", command=lambda: self._trigger_ctx_action("<<Cut>>"))
+        self._context_menu.add_separator()
+        self._context_menu.add_command(label="Выделить всё (Ctrl+A)", command=self._ctx_select_all)
+
+        # Глобальный перехват физических keycode для работы на русской и английской раскладке
+        self.bind_all("<Control-KeyPress>", self._on_ctrl_key, add="+")
+        self.bind_all("<Button-3>", self._on_right_click, add="+")
+
+    def _is_text_input_widget(self, widget: Any) -> bool:
+        if isinstance(widget, (tk.Text, tk.Entry, ttk.Entry, ttk.Combobox)):
+            return True
+        wclass = ""
+        try:
+            wclass = str(widget.winfo_class())
+        except Exception:
+            pass
+        return wclass in ("Text", "Entry", "TEntry", "TCombobox")
+
+    def _select_all_in_widget(self, widget: Any) -> None:
+        if isinstance(widget, tk.Text) or getattr(widget, "winfo_class", lambda: "")() == "Text":
+            widget.tag_add("sel", "1.0", "end-1c")
+            widget.mark_set("insert", "1.0")
+            widget.see("insert")
+        elif hasattr(widget, "select_range"):
+            widget.select_range(0, tk.END)
+            widget.icursor(tk.END)
+
+    def _on_ctrl_key(self, event: tk.Event) -> Optional[str]:
+        widget = event.widget
+        if not self._is_text_input_widget(widget):
+            return None
+
+        # Пропускаем стандартные латинские keysym, чтобы не вызвать двойное срабатывание,
+        # либо обрабатываем централизованно с возвратом "break"
+        keycode = getattr(event, "keycode", 0)
+        if keycode == 86:  # V / М (Вставить)
+            widget.event_generate("<<Paste>>")
+            return "break"
+        if keycode == 67:  # C / С (Копировать)
+            widget.event_generate("<<Copy>>")
+            return "break"
+        if keycode == 88:  # X / Ч (Вырезать)
+            widget.event_generate("<<Cut>>")
+            return "break"
+        if keycode == 65:  # A / Ф (Выделить всё)
+            self._select_all_in_widget(widget)
+            return "break"
+        return None
+
+    def _on_right_click(self, event: tk.Event) -> None:
+        widget = event.widget
+        if not self._is_text_input_widget(widget):
+            return
+        try:
+            widget.focus_set()
+            self._ctx_target = widget
+            self._context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._context_menu.grab_release()
+
+    def _trigger_ctx_action(self, virtual_event: str) -> None:
+        target = self._ctx_target or self.focus_get()
+        if target and self._is_text_input_widget(target):
+            target.event_generate(virtual_event)
+
+    def _ctx_select_all(self) -> None:
+        target = self._ctx_target or self.focus_get()
+        if target and self._is_text_input_widget(target):
+            self._select_all_in_widget(target)
 
     def _configure_dark_theme(self) -> None:
         style = ttk.Style(self)
@@ -858,6 +945,10 @@ class MusicVideoStudioApp(tk.Tk):
             kwargs={"port": port, "gpu_id": gpu_id, "log_cb": self.log},
             daemon=True
         ).start()
+
+
+# Алиас класса для совместимости
+StudioApp = MusicVideoStudioApp
 
 
 if __name__ == "__main__":

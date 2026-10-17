@@ -1308,7 +1308,9 @@ class StudioCore:
     ) -> Path:
         """
         Скачивает установщик MusicVideoStudio_Setup.exe во временную папку,
-        запускает его через subprocess.Popen и завершает текущее приложение.
+        очищает переменные окружения PyInstaller (_MEIPASS2, PYTHONPATH, PYTHONHOME, TCL_LIBRARY, TK_LIBRARY),
+        чтобы дочерний процесс инсталлятора не пытался искать python311.dll во временной папке _MEI родителя,
+        запускает инсталлятор через os.startfile (или subprocess.Popen с чистым env) и завершает приложение.
         """
         if not download_url:
             raise ValueError("Не указана ссылка download_url для скачивания обновления.")
@@ -1337,8 +1339,23 @@ class StudioCore:
         # Освобождаем дочерние процессы перед обновлением
         self.stop_ace_server()
 
-        creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        subprocess.Popen([str(installer_path)], close_fds=True, creationflags=creationflags)
+        # Очищаем переменные окружения PyInstaller, чтобы новый процесс не наследовал старый путь Temp\_MEI...
+        clean_env = dict(os.environ)
+        for var in ("_MEIPASS", "_MEIPASS2", "PYTHONPATH", "PYTHONHOME", "TCL_LIBRARY", "TK_LIBRARY"):
+            clean_env.pop(var, None)
+            os.environ.pop(var, None)
+
+        if hasattr(os, "startfile"):
+            os.startfile(str(installer_path))
+        else:
+            creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            subprocess.Popen(
+                [str(installer_path)],
+                env=clean_env,
+                cwd=str(temp_dir),
+                close_fds=True,
+                creationflags=creationflags
+            )
 
         if exit_app:
             os._exit(0)

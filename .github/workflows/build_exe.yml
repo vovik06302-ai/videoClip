@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Номер версии для сборки (например, 1.0.1)"
+        description: "Номер версии для сборки (например, 1.0.3)"
         required: false
         default: "1.0.0"
 
@@ -56,24 +56,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
 
-      - name: Build MusicVideoStudio_Desktop.exe and MusicVideoStudio_Web.exe
+      - name: Build MusicVideoStudio (--onedir) to avoid Temp\_MEI DLL errors
         shell: pwsh
         run: |
-          # 1. Сборка десктопного приложения (без консольного окна)
-          pyinstaller --noconfirm --clean --onefile --noconsole `
+          # Собираем через --onedir (НЕ --onefile), чтобы python311.dll и все библиотеки
+          # лежали стационарно в папке программы и никогда не вызывали ошибку Temp\_MEI...
+          pyinstaller --noconfirm --clean --onedir --noconsole `
             --name "MusicVideoStudio_Desktop" `
             app.py
 
-          # 2. Сборка веб-сервера (с вшитой папкой web через --add-data "web;web")
-          pyinstaller --noconfirm --clean --onefile `
+          pyinstaller --noconfirm --clean --onedir `
             --name "MusicVideoStudio_Web" `
             --add-data "web;web" `
             web_app.py
 
-          # 3. Подготовка единой директории dist/MusicVideoStudio для Inno Setup и портативного архива
+          # Объединяем обе сборки в общую директорию dist/MusicVideoStudio для Inno Setup
           New-Item -ItemType Directory -Force -Path "dist/MusicVideoStudio" | Out-Null
-          Copy-Item "dist/MusicVideoStudio_Desktop.exe" -Destination "dist/MusicVideoStudio/"
-          Copy-Item "dist/MusicVideoStudio_Web.exe" -Destination "dist/MusicVideoStudio/"
+          Copy-Item -Path "dist/MusicVideoStudio_Desktop/*" -Destination "dist/MusicVideoStudio/" -Recurse -Force
+          Copy-Item -Path "dist/MusicVideoStudio_Web/*" -Destination "dist/MusicVideoStudio/" -Recurse -Force
           Copy-Item "start_desktop.bat" -Destination "dist/MusicVideoStudio/" -ErrorAction SilentlyContinue
           Copy-Item "start_web.bat" -Destination "dist/MusicVideoStudio/" -ErrorAction SilentlyContinue
 
@@ -87,8 +87,6 @@ jobs:
         with:
           name: MusicVideoStudio-v${{ env.VERSION }}-Windows
           path: |
-            dist/MusicVideoStudio_Desktop.exe
-            dist/MusicVideoStudio_Web.exe
             Output/MusicVideoStudio_Setup.exe
 
       - name: Publish to GitHub Releases (on version tag)
@@ -96,7 +94,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/MusicVideoStudio_Desktop.exe
-            dist/MusicVideoStudio_Web.exe
             Output/MusicVideoStudio_Setup.exe
           generate_release_notes: true

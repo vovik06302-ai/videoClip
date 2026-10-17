@@ -17,7 +17,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}/releases
-; Устанавливаем в пользовательскую папку %LOCALAPPDATA%\Programs\MusicVideoStudio без запроса прав администратора
+; Устанавливаем в пользовательскую папку %LOCALAPPDATA%\Programs\MusicVideoStudio без конфликтов прав администратора
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppTitle}
 DisableProgramGroupPage=yes
@@ -30,6 +30,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -39,7 +40,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-; Упаковываем всё содержимое собранной папки dist\MusicVideoStudio
+; Упаковываем всё содержимое собранной папки dist\MusicVideoStudio (--onedir сборка со стационарной python311.dll)
 Source: "dist\MusicVideoStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
