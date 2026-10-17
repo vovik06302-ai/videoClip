@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MusicVideoStudio — Локальная ИИ-студия музыкальных клипов</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --panel: #111827;
+      --panel-alt: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --danger: #ef4444;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 22px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 22px;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 18px;
+    }
+    @media (max-width: 1100px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #e2e8f0;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      margin-top: 10px;
+    }
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      background: #0f172a;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 110px;
+      font-family: Consolas, monospace;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 13px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: var(--accent-hover); }
+    button.secondary {
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover { background: #334155; }
+    button.danger { background: var(--danger); }
+    button.danger:hover { background: #dc2626; }
+    button.success { background: var(--success); }
+    button.success:hover { background: #059669; }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .row-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      background: #0f172a;
+    }
+    tr:hover { background: rgba(255, 255, 255, 0.03); }
+    .mono {
+      font-family: Consolas, "IBM Plex Mono", monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .log-box {
+      background: #050811;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      height: 190px;
+      overflow-y: auto;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+    }
+    .status-ready { color: #34d399; font-weight: 600; }
+    .status-render { color: #fbbf24; font-weight: 600; }
+    .status-error { color: #f87171; font-weight: 600; }
+    .status-wait { color: #94a3b8; }
+    .gpu-bar {
+      font-size: 12px;
+      color: var(--muted);
+      padding: 6px 10px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">MusicVideoStudio — Локальная ИИ-студия музыкальных клипов</div>
+    <div class="toolbar">
+      <input type="text" id="projectInput" placeholder="Имя проекта" style="width: 180px;" />
+      <button class="secondary" onclick="openProject()">Открыть проект</button>
+      <button class="secondary" onclick="startAce()">Запустить ACE API</button>
+      <button class="danger" onclick="stopAce()">Остановить ACE API (освободить VRAM)</button>
+      <button class="secondary" onclick="checkGpu()">Проверить GPU / ComfyUI</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Левая колонка: Песня, Аудио и Настройки -->
+    <section>
+      <div class="card">
+        <h2>1. Генерация песни (ACE-Step 1.5)</h2>
+        <label>Музыкальный стиль / теги (Prompt)</label>
+        <input type="text" id="songPrompt" />
+
+        <label>Текст песни (Lyrics)</label>
+        <textarea id="songLyrics"></textarea>
+
+        <div class="row-2col">
+          <div>
+            <label>Длительность (сек)</label>
+            <input type="number" step="0.1" id="songDuration" />
+          </div>
+          <div>
+            <label>Seed</label>
+            <input type="number" id="songSeed" />
+          </div>
+        </div>
+
+        <div class="row">
+          <button class="secondary" onclick="generateLyrics()">Сгенерировать текст</button>
+          <button onclick="generateSong()">Сгенерировать песню</button>
+          <button class="secondary" onclick="saveSongParams()">Сохранить</button>
+        </div>
+
+        <label>Путь к готовому аудиофайлу (авто-FFprobe)</label>
+        <div class="row" style="margin-top: 4px;">
+          <input type="text" id="songPath" placeholder="C:\path\to\song.mp3" style="flex:1;" />
+          <button class="secondary" onclick="setAudioFile()">Загрузить и проверить FFprobe</button>
+        </div>
+        <div id="probedDurationText" class="mono" style="margin-top: 8px; color: #38bdf8; font-weight: 600;">
+          Точная длительность (FFprobe): 0.000 сек
+        </div>
+
+        <label>Портрет главного героя (для сцен lip-sync)</label>
+        <input type="text" id="heroImage" placeholder="C:\AI\assets\hero_cat.png" onchange="saveSongParams()" />
+      </div>
+
+      <div class="card">
+        <h2>3. Настройки путей и VRAM (config.json)</h2>
+        <label>Папка ACE-Step 1.5 (ace_dir)</label>
+        <input type="text" id="cfgAceDir" />
+
+        <label>Папка ComfyUI Portable (comfy_root)</label>
+        <input type="text" id="cfgComfyRoot" />
+
+        <label>Шаблон Lip-Sync S2V (workflow_lipsync)</label>
+        <input type="text" id="cfgWfLipsync" />
+
+        <label>Шаблон B-Roll I2V/T2V (workflow_broll)</label>
+        <input type="text" id="cfgWfBroll" />
+
+        <label>URL серверов ComfyUI (через запятую)</label>
+        <input type="text" id="cfgComfyUrls" />
+
+        <div class="row" style="margin-top: 12px;">
+          <input type="checkbox" id="cfgLowVram" style="width: auto;" />
+          <span style="font-size: 13px;">Флаг <code>--lowvram</code> (для 12 ГБ VRAM; выкл. для 24 ГБ)</span>
+        </div>
+
+        <label>Резерв видеопамяти <code>--reserve-vram</code> (ГБ)</label>
+        <input type="number" step="0.5" id="cfgReserveVram" />
+
+        <div class="row">
+          <button onclick="saveConfig()">Сохранить config.json</button>
+          <button class="secondary" onclick="startComfy(8188, 0)">Запуск Comfy 8188</button>
+          <button class="secondary" onclick="startComfy(8189, 1)">Запуск Comfy 8189</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Правая колонка: Раскадровка, управление сценами, очередь ComfyUI и сборка -->
+    <section>
+      <div class="card">
+        <h2>2. Раскадровка, нарезка аудио и рендер сцен (Wan2.2 + FFmpeg)</h2>
+        <div id="gpuStatusBox" class="gpu-bar">Статус серверов ComfyUI: нажмите «Проверить GPU / ComfyUI»</div>
+
+        <div class="row">
+          <select id="presetSelect" style="width: 170px;"></select>
+          <input type="number" step="0.5" id="sceneDurationInput" value="5.0" style="width: 95px;" title="Длина сцены (сек)" />
+          <button class="secondary" onclick="createStoryboard()">Создать раскадровку</button>
+          <button class="secondary" onclick="sliceAudio()">Нарезать аудио (16kHz WAV)</button>
+          <label style="display:flex; align-items:center; gap:6px; margin:0; color:var(--text);">
+            <input type="checkbox" id="skipCompletedCheck" checked style="width:auto;" />
+            Пропускать готовые сцены
+          </label>
+          <button onclick="queueAllScenes()">Отправить все сцены в ComfyUI</button>
+          <button class="success" onclick="assembleVideo()">Собрать финальный MP4</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 42px;">#</th>
+              <th style="width: 170px;">Тип сцены</th>
+              <th style="width: 120px;">Таймкод</th>
+              <th style="width: 90px;">Кадры (4k+1)</th>
+              <th>Английский промпт (UMT5 Wan2.2)</th>
+              <th style="width: 95px;">Статус</th>
+              <th style="width: 130px;">Действие</th>
+            </tr>
+          </thead>
+          <tbody id="storyboardBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Журнал выполнения конвейера</h2>
+        <div id="logBox" class="log-box"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let sceneTypesMap = {};
+
+    async function api(path, method = "GET", body = null) {
+      const opts = { method, headers: {} };
+      if (body !== null) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, opts);
+      return await res.json();
+    }
+
+    function calcWanFrames(duration, fps = 24) {
+      const raw = Math.max(17, Math.ceil(duration * fps));
+      const k = Math.ceil((raw - 1) / 4.0);
+      return 4 * k + 1;
+    }
+
+    async function refreshState(fullFormUpdate = false) {
+      const data = await api("/api/state");
+      if (!data.ok) return;
+
+      sceneTypesMap = data.scene_types || {};
+      const st = data.state;
+      const cfg = data.config;
+
+      if (fullFormUpdate) {
+        document.getElementById("projectInput").value = st.project_name || "default_project";
+        document.getElementById("songPrompt").value = (st.song_request && st.song_request.prompt) || "";
+        document.getElementById("songLyrics").value = (st.song_request && st.song_request.lyrics) || "";
+        document.getElementById("songDuration").value = st.song_duration || (st.song_request && st.song_request.duration) || 30;
+        document.getElementById("songSeed").value = (st.song_request && st.song_request.seed) || 42;
+        document.getElementById("songPath").value = st.song_path || "";
+        document.getElementById("heroImage").value = st.hero_image || "";
+
+        document.getElementById("cfgAceDir").value = cfg.ace_dir || "";
+        document.getElementById("cfgComfyRoot").value = cfg.comfy_root || "";
+        document.getElementById("cfgWfLipsync").value = cfg.workflow_lipsync || "";
+        document.getElementById("cfgWfBroll").value = cfg.workflow_broll || "";
+        document.getElementById("cfgComfyUrls").value = (cfg.comfy_urls || []).join(", ");
+        document.getElementById("cfgLowVram").checked = Boolean(cfg.lowvram);
+        document.getElementById("cfgReserveVram").value = cfg.reserve_vram ?? 2.0;
+        document.getElementById("skipCompletedCheck").checked = Boolean(cfg.skip_completed ?? true);
+
+        const presetSel = document.getElementById("presetSelect");
+        presetSel.innerHTML = "";
+        (data.presets || []).forEach(p => {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.textContent = p;
+          presetSel.appendChild(opt);
+        });
+      }
+
+      document.getElementById("probedDurationText").textContent =
+        `Точная длительность (FFprobe): ${Number(st.song_duration || 0).toFixed(3)} сек`;
+
+      renderStoryboardTable(st.storyboard || [], cfg.fps || 24);
+
+      const logEl = document.getElementById("logBox");
+      logEl.textContent = (data.logs || []).join("\n");
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function renderStoryboardTable(storyboard, fps) {
+      const tbody = document.getElementById("storyboardBody");
+      tbody.innerHTML = "";
+
+      storyboard.forEach(scene => {
+        const tr = document.createElement("tr");
+        const frames = calcWanFrames(Number(scene.duration || 5), fps);
+        const statusClass =
+          scene.status === "готово" ? "status-ready" :
+          scene.status === "рендер" ? "status-render" :
+          scene.status === "ошибка" ? "status-error" : "status-wait";
+
+        const typeOptions = Object.entries(sceneTypesMap).map(([key, label]) =>
+          `<option value="${key}" ${scene.type === key ? "selected" : ""}>${key} — ${label}</option>`
+        ).join("");
+
+        tr.innerHTML = `
+          <td class="mono">${scene.id}</td>
+          <td>
+            <select onchange="updateScene(${scene.id}, this.value, null)">
+              ${typeOptions}
+            </select>
+          </td>
+          <td class="mono">${Number(scene.start).toFixed(2)}s – ${Number(scene.end).toFixed(2)}s<br/><small>${Number(scene.duration).toFixed(2)}s</small></td>
+          <td class="mono">${frames} кадр.</td>
+          <td>
+            <input type="text" value="${(scene.prompt || "").replace(/"/g, "&quot;")}"
+                   onchange="updateScene(${scene.id}, null, this.value)" />
+          </td>
+          <td class="${statusClass}">${scene.status || "ожидание"}</td>
+          <td>
+            <button class="secondary" onclick="renderSingleScene(${scene.id})">Пересоздать сцену</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function openProject() {
+      const name = document.getElementById("projectInput").value.trim() || "default_project";
+      await api("/api/project/open", "POST", { project_name: name });
+      await refreshState(true);
+    }
+
+    async function startAce() { await api("/api/ace/start", "POST", {}); await refreshState(); }
+    async function stopAce() { await api("/api/ace/stop", "POST", {}); await refreshState(); }
+
+    async function checkGpu() {
+      const res = await api("/api/gpu_status");
+      const box = document.getElementById("gpuStatusBox");
+      if (res.servers && res.servers.length > 0) {
+        box.textContent = "Онлайн GPU ComfyUI: " + res.servers.map(
+          s => `${s.url} (${s.gpu_name}, свободно ${s.vram_free_gb}/${s.vram_total_gb} ГБ VRAM)`
+        ).join(" | ");
+      } else {
+        box.textContent = "Серверы ComfyUI (8188/8189) сейчас офлайн.";
+      }
+      await refreshState();
+    }
+
+    async function saveSongParams() {
+      await api("/api/song/save_params", "POST", {
+        prompt: document.getElementById("songPrompt").value,
+        lyrics: document.getElementById("songLyrics").value,
+        duration: Number(document.getElementById("songDuration").value || 30),
+        seed: Number(document.getElementById("songSeed").value || 42),
+        hero_image: document.getElementById("heroImage").value
+      });
+      await refreshState();
+    }
+
+    async function setAudioFile() {
+      const path = document.getElementById("songPath").value.trim();
+      if (!path) return;
+      await api("/api/song/set_file", "POST", { path });
+      await refreshState(true);
+    }
+
+    async function generateLyrics() {
+      await api("/api/song/generate_lyrics", "POST", {
+        prompt: document.getElementById("songPrompt").value,
+        lyrics: document.getElementById("songLyrics").value
+      });
+      await refreshState(true);
+    }
+
+    async function generateSong() {
+      await api("/api/song/generate_audio", "POST", {
+        prompt: document.getElementById("songPrompt").value,
+        lyrics: document.getElementById("songLyrics").value,
+        duration: Number(document.getElementById("songDuration").value || 30),
+        seed: Number(document.getElementById("songSeed").value || 42)
+      });
+      await refreshState();
+    }
+
+    async function createStoryboard() {
+      await api("/api/storyboard/generate", "POST", {
+        preset: document.getElementById("presetSelect").value,
+        scene_duration: Number(document.getElementById("sceneDurationInput").value || 5.0)
+      });
+      await refreshState();
+    }
+
+    async function updateScene(id, typeVal, promptVal) {
+      const payload = { id };
+      if (typeVal !== null) payload.type = typeVal;
+      if (promptVal !== null) payload.prompt = promptVal;
+      await api("/api/storyboard/update_scene", "POST", payload);
+      await refreshState();
+    }
+
+    async function sliceAudio() {
+      await api("/api/audio/slice", "POST", {});
+      await refreshState();
+    }
+
+    async function renderSingleScene(id) {
+      await api("/api/comfy/render_scene", "POST", { id });
+      await refreshState();
+    }
+
+    async function queueAllScenes() {
+      const skip = document.getElementById("skipCompletedCheck").checked;
+      await api("/api/comfy/queue_all", "POST", { skip_completed: skip });
+      await refreshState();
+    }
+
+    async function assembleVideo() {
+      await api("/api/video/assemble", "POST", { output_name: "final_music_video.mp4" });
+      await refreshState();
+    }
+
+    async function saveConfig() {
+      const urls = document.getElementById("cfgComfyUrls").value
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
+      await api("/api/config", "POST", {
+        ace_dir: document.getElementById("cfgAceDir").value.trim(),
+        comfy_root: document.getElementById("cfgComfyRoot").value.trim(),
+        workflow_lipsync: document.getElementById("cfgWfLipsync").value.trim(),
+        workflow_broll: document.getElementById("cfgWfBroll").value.trim(),
+        comfy_urls: urls,
+        lowvram: document.getElementById("cfgLowVram").checked,
+        reserve_vram: Number(document.getElementById("cfgReserveVram").value || 0),
+        skip_completed: document.getElementById("skipCompletedCheck").checked
+      });
+      await refreshState(true);
+    }
+
+    async function startComfy(port, gpu_id) {
+      await saveConfig();
+      await api("/api/comfy/start", "POST", { port, gpu_id });
+      await refreshState();
+    }
+
+    refreshState(true);
+    setInterval(() => refreshState(false), 3000);
+  </script>
+</body>
+</html>
