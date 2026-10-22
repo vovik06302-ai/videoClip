@@ -623,6 +623,75 @@
       height: 13px;
       flex-shrink: 0;
     }
+
+    /* ===== ТУР-ИНСТРУКЦИЯ ===== */
+    #tourSpotlight {
+      position: fixed;
+      z-index: 9000;
+      pointer-events: none;
+      border-radius: 10px;
+      box-sizing: border-box;
+      background: conic-gradient(from var(--tour-angle, 0deg),
+        #f87171, #fbbf24, #34d399, #60a5fa, #c084fc, #f87171);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+              mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+              mask-composite: exclude;
+      padding: 3px;
+      animation: tourHueSpin 3s linear infinite, tourGlowPulse 1.8s ease-in-out infinite;
+      transition: top .3s ease, left .3s ease, width .3s ease, height .3s ease;
+      opacity: 0;
+    }
+    @property --tour-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+    @keyframes tourHueSpin { to { --tour-angle: 360deg; filter: hue-rotate(360deg); } }
+    @keyframes tourGlowPulse {
+      0%, 100% { box-shadow: 0 0 6px 2px rgba(96,165,250,.35); }
+      50%      { box-shadow: 0 0 18px 6px rgba(192,132,252,.55); }
+    }
+    #tourOverlayDim {
+      position: fixed; inset: 0; z-index: 8999;
+      background: rgba(2, 6, 23, 0.55);
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s ease;
+    }
+    body.tour-active #tourOverlayDim { opacity: 1; }
+    body.tour-active #tourSpotlight { opacity: 1; }
+    #tourCard {
+      position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+      z-index: 9001; width: min(560px, calc(100vw - 24px));
+      background: var(--bg-card); color: var(--text-main);
+      border: 1px solid var(--border-focus); border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.6);
+      padding: 14px 16px; display: none; flex-direction: column; gap: 10px;
+      font-size: 13px;
+    }
+    body.tour-active #tourCard { display: flex; }
+    #tourCard .tour-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    #tourCard .tour-step-label { font-weight: 700; color: var(--blue-icon); font-size: 12px; white-space: nowrap; }
+    #tourCard .tour-title { font-weight: 600; color: var(--text-main); }
+    #tourCard .tour-text { color: var(--text-sub); line-height: 1.45; }
+    #tourCard .tour-progress-track {
+      height: 6px; border-radius: 3px; background: var(--bg-btn-sec); overflow: hidden;
+    }
+    #tourCard .tour-progress-fill {
+      height: 100%; width: 0%; border-radius: 3px;
+      background: linear-gradient(90deg, #3b82f6, #10b981);
+      transition: width .3s ease;
+    }
+    #tourCard .tour-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    #tourCard .tour-hint { color: var(--text-dim); font-size: 11px; margin-right: auto; align-self: center; }
+    @media (max-width: 640px) {
+      #tourCard { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; padding: 12px; }
+      #tourCard .tour-actions .btn { padding: 6px 10px; font-size: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #tourSpotlight {
+        animation: none;
+        background: var(--blue-icon);
+      }
+      #tourSpotlight, #tourCard .tour-progress-fill { transition: none; }
+    }
+    /* ===== /ТУР-ИНСТРУКЦИЯ ===== */
   </style>
 </head>
 <body>
@@ -633,7 +702,8 @@
       <button class="nav-tab active" onclick="scrollToSection('top')">Студия и конвейер</button>
       <button class="nav-tab" onclick="scrollToSection('settingsCard')">Настройки и VRAM (config.json)</button>
     </nav>
-    <div>
+    <div style="display: flex; gap: 8px;">
+      <button id="tourBtn" class="btn btn-secondary" onclick="startTour()" title="Пошаговая инструкция для новичка">📖 Инструкция</button>
       <button class="btn btn-primary" onclick="checkGpu()">
         <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
@@ -1003,6 +1073,25 @@
       </div>
     </div>
   </main>
+
+  <!-- ===== ТУР-ИНСТРУКЦИЯ: разметка ===== -->
+  <div id="tourOverlayDim" aria-hidden="true"></div>
+  <div id="tourSpotlight" aria-hidden="true"></div>
+  <div id="tourCard" role="dialog" aria-modal="false" aria-label="Интерактивная инструкция">
+    <div class="tour-head">
+      <span class="tour-step-label" id="tourStepLabel">Шаг 1 из 1</span>
+      <span class="tour-title" id="tourTitle"></span>
+    </div>
+    <div class="tour-text" id="tourText"></div>
+    <div class="tour-progress-track"><div class="tour-progress-fill" id="tourProgressFill"></div></div>
+    <div class="tour-actions">
+      <span class="tour-hint">← → переключение, Esc закрыть. Можно нажать подсвеченную кнопку по-настоящему — тур продолжит сам.</span>
+      <button class="btn btn-secondary" id="tourBackBtn" onclick="tourPrev()">Назад</button>
+      <button class="btn btn-secondary" onclick="endTour()">Пропустить</button>
+      <button class="btn btn-primary" id="tourNextBtn" onclick="tourNext()">Далее</button>
+    </div>
+  </div>
+  <!-- ===== /ТУР-ИНСТРУКЦИЯ ===== -->
 
   <!-- Video Preview Modal -->
   <div id="videoModal" class="modal-backdrop" onclick="closePreviewModal(event)">
@@ -1813,6 +1902,188 @@
       await api("/api/comfy/start", "POST", { port, gpu_id });
       await refreshState();
     }
+
+    /* ===== ТУР-ИНСТРУКЦИЯ ===== */
+    // Шаги тура: правьте тексты и добавляйте шаги здесь.
+    // tab: "main" — прокрутка к элементу; "settings" — сначала вкладка «Настройки и VRAM».
+    // target: CSS-селектор реального элемента интерфейса.
+    const TOUR_STEPS = [
+      { tab: "main",     target: "#projectInput",        title: "Открыть проект",
+        text: "Введите имя папки проекта и нажмите «Открыть проект». Все файлы клипа будут храниться в projects/<имя>." },
+      { tab: "main",     target: "autoPipelineBtn",      title: "Быстрый старт (по желанию)",
+        text: "Есть текст песни и фото героя? Нажмите «🚀 Сделать клип автоматически» — весь конвейер пройдёт сам. Дальше идём по шагам для ручного контроля." },
+      { tab: "main",     target: "startAceBtn",          title: "Запустить ACE API",
+        text: "Нажмите «Запустить ACE API» и дождитесь готовности — модель генерации музыки поднимется на порту 8001." },
+      { tab: "main",     target: "#songPrompt",          title: "Теги стиля",
+        text: "Опишите музыку: жанр, настроение, инструменты, BPM и тип вокала. Кнопки «Пример тегов» и «Вставить шаблон» подскажут формат." },
+      { tab: "main",     target: "genLyricsBtn",         title: "Текст песни",
+        text: "Вставьте свой текст в поле Lyrics или нажмите «Сгенерировать текст». Лучше работает структура с метками [Verse] и [Chorus]." },
+      { tab: "main",     target: "#songDuration",        title: "Длительность и seed",
+        text: "Укажите длительность трека (берите +5–10 секунд про запас) и seed — числовое «зерно» генерации. Seed ±1 даёт похожий, но другой вариант." },
+      { tab: "main",     target: "#heroFileInput",       title: "Фото героя",
+        text: "Загрузите фотографию героя — она используется в lip-sync сценах, чтобы персонаж был одинаковым во всём клипе." },
+      { tab: "main",     target: "genSongBtn",           title: "Сгенерировать песню",
+        text: "Нажмите «Сгенерировать трек» и дождитесь audio/song.mp3. Готовую песню можно загрузить полем выше и проверить кнопкой «FFprobe тест»." },
+      { tab: "main",     target: "stopAceBtn",           title: "Освободить видеопамять",
+        text: "Песня готова? Нажмите «Остановить ACE API» — модель освободит VRAM, и рендер видео пройдёт стабильнее." },
+      { tab: "settings", target: "saveConfigBtn",        title: "Проверить пути",
+        text: "Проверьте пути ace_dir, comfy_root и оба workflow JSON (экспортированные через «Файл → Экспортировать (API)»), затем «Сохранить config.json»." },
+      { tab: "settings", target: "comfy8188Btn",         title: "Запуск ComfyUI #1",
+        text: "Нажмите «Запуск Comfy 8188» — первый экземпляр ComfyUI на видеокарте GPU 0." },
+      { tab: "settings", target: "comfy8189Btn",         title: "Запуск ComfyUI #2",
+        text: "Нажмите «Запуск Comfy 8189» — второй экземпляр на GPU 1; очередь будет рендерить сцены на двух картах параллельно." },
+      { tab: "main",     target: "checkGpuBtn",          title: "Проверка GPU",
+        text: "Нажмите «Проверить GPU / ComfyUI» вверху страницы — оба сервера должны показаться онлайн в логе и в статусе." },
+      { tab: "main",     target: "#presetSelect",        title: "Создать раскадровку",
+        text: "Выберите пресет видео-промптов и длительность сцены (для 12 ГБ начните с 5 сек и 512×512), затем «Создать раскадровку»." },
+      { tab: "main",     target: "detectBeatsBtn",       title: "Границы по битам (необязательно)",
+        text: "«🥁 Границы по битам» построит метки на началах тактов; перетащите или удалите их мышью на волне, затем «Применить метки»." },
+      { tab: "main",     target: "sliceAudioBtn",        title: "Нарезать аудио",
+        text: "Нажмите «Нарезать WAV (16kHz mono)» — трек будет разрезан на сегменты по границам сцен." },
+      { tab: "main",     target: "queueAllBtn",          title: "Рендер сцен",
+        text: "Нажмите «В очередь ComfyUI» — все сцены уйдут в рендер. Ошибка одной сцены не остановит очередь; «Остановить очередь» прервёт после текущей." },
+      { tab: "main",     target: "assembleBtn",          title: "Финальная сборка",
+        text: "Когда все сцены готовы, нажмите «Финальная сборка MP4 (CRF 18)». Готовый клип — в projects/<имя>/output/final_music_video.mp4." },
+    ];
+
+    let tourActive = false;
+    let tourIndex = 0;
+    let tourTargetEl = null;
+    let tourSeenKey = "tour_seen";
+
+    function tourScrollToSettingsTab() {
+      // Вкладки реализованы как кнопки навигации со скроллом: переключаем на «Настройки и VRAM»
+      const tabs = document.querySelectorAll("header .nav-tab");
+      if (tabs.length >= 2) tabs[1].click();
+    }
+
+    // Селекторы кнопок без id — вынесены сюда, чтобы править в одном месте
+    const TOUR_SELECTORS = {
+      openProjectBtn:   "button[onclick=\"openProject()\"]",
+      startAceBtn:      "button[onclick=\"startAce()\"]",
+      stopAceBtn:       "button[onclick=\"stopAce()\"]",
+      genLyricsBtn:     "button[onclick=\"generateLyrics()\"]",
+      genSongBtn:       "button[onclick=\"generateSong()\"]",
+      ffprobeBtn:       "button[onclick=\"setAudioFile()\"]",
+      autoPipelineBtn:  "button[onclick=\"runAutoPipeline()\"]",
+      saveConfigBtn:    "button[onclick=\"saveConfig()\"]",
+      comfy8188Btn:     "button[onclick^=\"startComfy(8188\"]",
+      comfy8189Btn:     "button[onclick^=\"startComfy(8189\"]",
+      checkGpuBtn:      "button[onclick=\"checkGpu()\"]",
+      storyboardBtn:    "button[onclick=\"createStoryboard()\"]",
+      sceneDurInput:    "#sceneDurationInput",
+      detectBeatsBtn:   "button[onclick=\"detectBeats()\"]",
+      sliceAudioBtn:    "button[onclick=\"sliceAudio()\"]",
+      queueAllBtn:      "button[onclick=\"queueAllScenes()\"]",
+      assembleBtn:      "button[onclick=\"assembleVideo()\"]",
+    };
+
+    function tourResolveTarget(step) {
+      // target может быть CSS-селектором или ключом из TOUR_SELECTORS
+      if (!step.target) return null;
+      const sel = TOUR_SELECTORS[step.target] || step.target;
+      try { return document.querySelector(sel); } catch (e) { return null; }
+    }
+
+    function tourPositionSpotlight(el) {
+      const sp = document.getElementById("tourSpotlight");
+      if (!sp) return;
+      if (!el) { sp.style.opacity = "0"; return; }
+      const r = el.getBoundingClientRect();
+      const pad = 6;
+      sp.style.top = Math.max(4, r.top - pad) + "px";
+      sp.style.left = Math.max(4, r.left - pad) + "px";
+      sp.style.width = (r.width + pad * 2) + "px";
+      sp.style.height = (r.height + pad * 2) + "px";
+    }
+
+    function tourShowStep(idx) {
+      // Пропускаем шаги с ненайденным элементом (кроме шагов без target — они информационные)
+      let guard = 0;
+      while (idx >= 0 && idx < TOUR_STEPS.length && guard++ < TOUR_STEPS.length) {
+        const step = TOUR_STEPS[idx];
+        if (step.target && !tourResolveTarget(step)) {
+          console.warn("[TOUR] Шаг пропущен: элемент не найден:", step.target, "—", step.title);
+          idx += 1;
+          continue;
+        }
+        break;
+      }
+      if (idx < 0 || idx >= TOUR_STEPS.length) { endTour(true); return; }
+      tourIndex = idx;
+      const step = TOUR_STEPS[idx];
+
+      if (step.tab === "settings") tourScrollToSettingsTab();
+
+      const el = tourResolveTarget(step);
+      tourTargetEl = el;
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      else window.scrollTo({ top: 0, behavior: "smooth" });
+
+      document.getElementById("tourStepLabel").textContent = `Шаг ${idx + 1} из ${TOUR_STEPS.length}`;
+      document.getElementById("tourTitle").textContent = step.title;
+      document.getElementById("tourText").textContent = step.text;
+      document.getElementById("tourProgressFill").style.width =
+        Math.round(((idx + 1) / TOUR_STEPS.length) * 100) + "%";
+      document.getElementById("tourBackBtn").disabled = (idx === 0);
+      document.getElementById("tourNextBtn").textContent = (idx === TOUR_STEPS.length - 1) ? "Готово" : "Далее";
+
+      // Подсветка ставится после завершения плавной прокрутки
+      requestAnimationFrame(() => tourPositionSpotlight(el));
+      setTimeout(() => tourPositionSpotlight(tourTargetEl), 450);
+    }
+
+    function startTour(fromIdx) {
+      tourActive = true;
+      document.body.classList.add("tour-active");
+      tourShowStep(typeof fromIdx === "number" ? fromIdx : 0);
+      try { localStorage.setItem(tourSeenKey, "1"); } catch (e) {}
+    }
+
+    function tourNext() {
+      if (!tourActive) return;
+      tourShowStep(tourIndex + 1);
+    }
+
+    function tourPrev() {
+      if (!tourActive) return;
+      let i = tourIndex - 1;
+      while (i >= 0 && TOUR_STEPS[i].target && !tourResolveTarget(TOUR_STEPS[i])) i--;
+      tourShowStep(i < 0 ? 0 : i);
+    }
+
+    function endTour(completed) {
+      tourActive = false;
+      tourTargetEl = null;
+      document.body.classList.remove("tour-active");
+      if (completed) appendLocalLogLine("[TOUR] Инструкция пройдена полностью. Удачного клипа!");
+    }
+
+    // Клик по реальной подсвеченной кнопке → тур сам переходит дальше
+    document.addEventListener("click", (e) => {
+      if (!tourActive || !tourTargetEl) return;
+      if (tourTargetEl.contains(e.target) || e.target === tourTargetEl) {
+        setTimeout(tourNext, 350); // даём действию кнопки стартовать
+      }
+    }, true);
+
+    // Клавиатура: Esc — закрыть, ←/→ — шаги
+    document.addEventListener("keydown", (e) => {
+      if (!tourActive) return;
+      if (e.key === "Escape") { endTour(false); }
+      else if (e.key === "ArrowRight") { tourNext(); }
+      else if (e.key === "ArrowLeft") { tourPrev(); }
+    });
+
+    // При ресайзе/скролле подсветка следует за элементом
+    window.addEventListener("resize", () => { if (tourActive) tourPositionSpotlight(tourTargetEl); });
+    window.addEventListener("scroll", () => { if (tourActive) tourPositionSpotlight(tourTargetEl); }, true);
+
+    // Автопоказ при самом первом запуске
+    if (!(() => { try { return localStorage.getItem(tourSeenKey); } catch (e) { return "1"; } })()) {
+      setTimeout(() => startTour(0), 800);
+    }
+    /* ===== /ТУР-ИНСТРУКЦИЯ ===== */
 
     refreshState(true).then(() => checkUpdates());
     setInterval(() => refreshState(false), 3000);
