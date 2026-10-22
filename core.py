@@ -74,7 +74,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "reserve_vram": 2.0,
     "fps": 24,
     "default_scene_duration": 5.0,
-    "skip_completed": True
+    "skip_completed": True,
+    # Выбранная пользователем корневая папка проекта (пусто = старый режим projects/<имя>)
+    "project_dir": "",
+    "recent_projects": [],
+    "cleanup_comfy_input": True
 }
 
 SCENE_TYPE_LABELS: Dict[str, str] = {
@@ -143,12 +147,15 @@ class StudioCore:
             PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
         except PermissionError:
             pass
+        # Резервная папка логов на случай, если проект ещё не выбран
+        self._fallback_logs_dir: Path = DATA_DIR / "logs"
         self.ace_process: Optional[subprocess.Popen] = None
         self.comfy_processes: Dict[int, subprocess.Popen] = {}
         # Отмена очереди рендера: текущая сцена дорендеривается, следующие не запускаются
         self.cancel_requested = threading.Event()
         self.state: Dict[str, Any] = {
             "project_name": "default_project",
+            "project_dir": "",
             "hero_image": "",
             "song_path": "",
             "song_duration": 0.0,
@@ -163,9 +170,42 @@ class StudioCore:
             "queue_progress": {"total": 0, "done": 0, "failed": 0, "current": ""}
         }
         self.load_config()
-        self.open_project(self.state["project_name"])
+        # Совместимость: project_dir может быть указан абсолютным путём — open_project сам разберётся
+        init_name = Path(str(self.config.get("project_dir", "") or "")).name or self.state["project_name"]
+        self.open_project(init_name)
         if not self.state.get("storyboard"):
             self.generate_storyboard_from_preset("cyber_cat")
+
+    # -------------------------------------------------------------------------
+    # Логи проекта (logs/YYYY-MM-DD.txt внутри выбранной папки)
+    # -------------------------------------------------------------------------
+    def get_logs_dir(self) -> Path:
+        """Папка логов: всегда logs/ внутри текущего проекта; до выбора проекта — резервная папка данных."""
+        chosen = str(self.config.get("project_dir", "") or "").strip()
+        if chosen and Path(chosen).is_dir():
+            d = Path(chosen).resolve() / "logs"
+        else:
+            try:
+                d = self.get_project_dir() / "logs"
+            except Exception:
+                d = self._fallback_logs_dir
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            d = self._fallback_logs_dir
+            d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def write_log_line(self, msg: str) -> None:
+        """Дублирует строку лога в файл logs/<дата>.txt текущего проекта."""
+        import datetime as _dt
+        try:
+            fname = self.get_logs_dir() / f"{_dt.date.today().isoformat()}.txt"
+            line = f"{_dt.datetime.now().strftime('%H:%M:%S')} {msg}\n"
+            with open(fname, "a", encoding="utf-8") as fh:
+                fh.write(line)
+        except OSError:
+            pass  # логирование не должно ронять приложение
 
     # -------------------------------------------------------------------------
     # Конфигурация и управление проектами
@@ -216,22 +256,142 @@ class StudioCore:
             pass
         return self.config
 
+    # Подпапки проекта: всё, что создаёт программа, хранится внутри выбранной папки
+    PROJECT_SUBDIRS = ("audio", "segments", "clips", "trimmed", "data", "images", "output", "logs", "temp")
+
+    def _ensure_subdirs(self, proj_dir: Path) -> None:
+        for sub in self.PROJECT_SUBDIRS:
+            try:
+                (proj_dir / sub).mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+
     def get_project_dir(self, project_name: Optional[str] = None) -> Path:
+        """
+        Возвращает абсолютную папку текущего проекта.
+        - Если в config.json задан "project_dir" и имя совпадает с текущим проектом — это выбранная пользователем папка.
+        - Иначе — запасной вариант совместимости: projects/<имя> (старые проекты открываются как раньше).
+        """
         name = (project_name or self.state.get("project_name") or "default_project").strip()
-        safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
-        proj_dir = PROJECTS_ROOT / safe_name
-        for sub in ("audio", "segments", "clips", "trimmed", "data", "output"):
-            (proj_dir / sub).mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
+        chosen = str(self.config.get("project_dir", "") or "").strip()
+        if chosen and safe_name == self.state.get("project_name"):
+            proj_dir = Path(chosen).resolve()
+        else:
+            proj_dir = (PROJECTS_ROOT / safe_name).resolve()
+        try:
+            proj_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        self._ensure_subdirs(proj_dir)
         return proj_dir
 
     def list_projects(self) -> List[str]:
-        if not PROJECTS_ROOT.exists():
-            return []
-        return sorted([d.name for d in PROJECTS_ROOT.iterdir() if d.is_dir()])
+        names: set = set()
+        if PROJECTS_ROOT.exists():
+            names.update(d.name for d in PROJECTS_ROOT.iterdir() if d.is_dir())
+        # Выбранный проект всегда доступен в списке
+        cur = str(self.state.get("project_name", "")).strip()
+        if cur:
+            names.add(cur)
+        return sorted(names)
+
+    def recent_projects(self) -> List[str]:
+        rec = self.config.get("recent_projects", [])
+        return [str(x) for x in rec if str(x).strip()] if isinstance(rec, list) else []
+
+    def _add_recent_project(self, path: str) -> None:
+        rec = [p for p in self.recent_projects() if p != path]
+        rec.insert(0, path)
+        self.config["recent_projects"] = rec[:10]
+        self.save_config()
+
+    def pick_folder_dialog(self, log_cb: Optional[Callable[[str], None]] = None) -> str:
+        """
+        Системный диалог выбора папки через tkinter в ОТДЕЛЬНОМ процессе,
+        чтобы не блокировать веб-сервер. Пустая строка = пользователь отменил.
+        """
+        script = (
+            "import tkinter as tk\n"
+            "from tkinter import filedialog\n"
+            "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+            "print(filedialog.askdirectory())\n"
+        )
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True, text=True, timeout=300
+            )
+            folder = proc.stdout.strip().splitlines()[-1].strip() if proc.stdout.strip() else ""
+        except FileNotFoundError:
+            folder = ""
+            if log_cb:
+                log_cb("[ERROR] Python-интерпретатор не найден — диалог выбора папки недоступен.")
+        except Exception as exc:
+            folder = ""
+            if log_cb:
+                log_cb(f"[WARN] Диалог выбора папки недоступен ({exc}). Укажите путь вручную.")
+        return str(Path(folder).resolve()) if folder else ""
+
+    def set_project_dir(self, folder: str, log_cb: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Делает выбранную папку корнем проекта и открывает её."""
+        folder = str(folder or "").strip().strip('"')
+        if not folder:
+            raise ValueError("Путь к папке не передан.")
+        proj = Path(folder).resolve()
+        if not proj.is_dir():
+            raise ValueError(f"Папка не найдена: {proj}")
+        self.config["project_dir"] = str(proj)
+        self._add_recent_project(str(proj))
+        st = self.open_project(proj.name, log_cb=log_cb)
+        if log_cb:
+            log_cb(f"[PROJECT] Корень проекта: {proj}")
+        return st
+
+    def create_project_folder(self, parent: str, name: str, log_cb: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """Создаёт подпапку с именем проекта внутри выбранной родительской папки и открывает её."""
+        clean = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(name or "").strip())
+        if not clean:
+            raise ValueError("Имя проекта не может быть пустым.")
+        base = Path(str(parent or "").strip()).resolve()
+        if not base.is_dir():
+            raise ValueError(f"Родительская папка не найдена: {base}")
+        proj = base / clean
+        proj.mkdir(parents=True, exist_ok=True)
+        return self.set_project_dir(str(proj), log_cb=log_cb)
+
+    def open_last_project(self, log_cb: Optional[Callable[[str], None]] = None) -> bool:
+        """При запуске открывает последний проект из config.json; если папка пропала — понятное сообщение."""
+        last = str(self.config.get("project_dir", "") or "").strip()
+        if not last:
+            return False
+        proj = Path(last).resolve()
+        if not proj.is_dir():
+            if log_cb:
+                log_cb(f"[WARN] Папка последнего проекта не найдена: {proj}. Выберите папку проекта заново (кнопка «📁 Выбрать папку»).")
+            self.config["project_dir"] = ""
+            self.save_config()
+            return False
+        try:
+            self.open_project(proj.name, log_cb=log_cb)
+            return True
+        except Exception as exc:
+            if log_cb:
+                log_cb(f"[WARN] Не удалось открыть последний проект: {exc}")
+            return False
 
     def open_project(self, project_name: str, log_cb: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-        proj_dir = self.get_project_dir(project_name)
+        chosen = str(self.config.get("project_dir", "") or "").strip()
+        raw = str(project_name).strip().strip('"')
+        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", raw)
+        # Режим выбранной папки: совпало имя ИЛИ передан абсолютный путь к ней
+        if chosen and (safe == Path(chosen).name or (Path(raw).is_absolute() and Path(raw).resolve() == Path(chosen).resolve())):
+            proj_dir = Path(chosen).resolve()
+            self._ensure_subdirs(proj_dir)
+        else:
+            proj_dir = self.get_project_dir(project_name)
         self.state["project_name"] = proj_dir.name
+        self.state["project_dir"] = str(proj_dir)
 
         # 1. Загрузка параметров песни (data/song_request.json)
         req_file = proj_dir / "data" / "song_request.json"
@@ -360,8 +520,9 @@ class StudioCore:
         return str(dest.resolve())
 
     def upload_hero_image(self, file_b64: str, filename: str, log_cb: Optional[Callable[[str], None]] = None) -> str:
+        # Фото героя хранится в <проект>/images/ и дальше используется копия оттуда
         path = self._save_upload_b64(
-            file_b64, filename, "assets", self.ALLOWED_IMAGE_EXTS,
+            file_b64, filename, "images", self.ALLOWED_IMAGE_EXTS,
             f"hero_{int(time.time())}", log_cb=log_cb
         )
         self.save_song_request(dict(self.state.get("song_request", {})), hero_image=path)
@@ -1217,6 +1378,7 @@ class StudioCore:
         seg_dir = proj_dir / "segments"
         seg_dir.mkdir(parents=True, exist_ok=True)
         created_files: List[str] = []
+        ffbin = self._ffmpeg_bin()  # единая точка настройки ffmpeg (config: ffmpeg_path)
 
         for scene in self.state["storyboard"]:
             sid = int(scene["id"])
@@ -1225,7 +1387,7 @@ class StudioCore:
             out_wav = seg_dir / f"scene_{sid:03d}.wav"
 
             cmd = [
-                "ffmpeg", "-y",
+                ffbin, "-y",
                 "-ss", f"{start:.4f}",
                 "-t", f"{duration:.4f}",
                 "-i", str(song_path),
@@ -1639,8 +1801,10 @@ class StudioCore:
            с параметрами: -c:v libx264 -preset fast -crf 18 -r 24 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest
         """
         proj_dir = self.get_project_dir()
-        trimmed_dir = proj_dir / "trimmed"
-        trimmed_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = proj_dir / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        trimmed_dir = temp_dir  # промежуточные файлы сборки пишем в <проект>/temp/ и чистим после
+        ffbin = self._ffmpeg_bin()
 
         storyboard = self.state.get("storyboard", [])
         if not storyboard:
@@ -1664,7 +1828,7 @@ class StudioCore:
 
             # Нормализация и точная подрезка до расчётной длительности сцены (-t {scene['duration']} -r 24)
             trim_cmd = [
-                "ffmpeg", "-y",
+                ffbin, "-y",
                 "-i", str(raw_clip),
                 "-t", f"{exact_dur:.4f}",
                 "-r", str(fps),
@@ -1689,7 +1853,7 @@ class StudioCore:
 
         final_mp4 = proj_dir / "output" / output_name
         assemble_cmd = [
-            "ffmpeg", "-y",
+            ffbin, "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", str(concat_list_path),
@@ -1711,6 +1875,17 @@ class StudioCore:
         proc = subprocess.run(assemble_cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(f"Ошибка финальной сборки MP4: {proc.stderr}")
+
+        # Чистим временные файлы сборки (temp/): trimmed_*.mp4 и concat_list.txt
+        try:
+            for tmp_f in temp_dir.glob("trimmed_*.mp4"):
+                tmp_f.unlink(missing_ok=True)
+            concat_list_path.unlink(missing_ok=True)
+            if log_cb:
+                log_cb("[CLEANUP] Временные файлы сборки удалены из temp/.")
+        except OSError as exc:
+            if log_cb:
+                log_cb(f"[WARN] Не удалось очистить temp/: {exc}")
 
         if log_cb:
             log_cb(f"[DONE] Финальный клип успешно собран: {final_mp4.resolve()}")
