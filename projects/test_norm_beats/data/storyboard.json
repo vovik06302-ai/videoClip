@@ -1,0 +1,41 @@
+[
+  {
+    "id": 1,
+    "type": "lip-sync",
+    "type_label": "Синхронизация губ (вокал)",
+    "start": 0.0,
+    "end": 2.0,
+    "duration": 2.0,
+    "prompt": "Medium close-up of a charismatic anthropomorphic ginger tabby cat wearing a vintage leather jacket and neon headphones, singing emotionally into a studio condenser microphone, expressive mouth movement, cinematic studio lighting, shallow depth of field, 4k",
+    "custom_image": "",
+    "audio_segment": "/workspace/projects/test_norm_beats/segments/scene_001.wav",
+    "clip_path": "",
+    "status": "ожидание"
+  },
+  {
+    "id": 2,
+    "type": "b-roll",
+    "type_label": "Перебивка / атмосфера (B-Roll)",
+    "start": 2.0,
+    "end": 4.0,
+    "duration": 2.0,
+    "prompt": "Wide cinematic shot of a rain-slicked cyberpunk Tokyo alley at night, glowing neon reflections on wet asphalt, steam rising from vents, atmospheric fog, moody blue and magenta lighting, no characters, 4k",
+    "custom_image": "",
+    "audio_segment": "/workspace/projects/test_norm_beats/segments/scene_002.wav",
+    "clip_path": "",
+    "status": "ожидание"
+  },
+  {
+    "id": 3,
+    "type": "lip-sync",
+    "type_label": "Синхронизация губ (вокал)",
+    "start": 4.0,
+    "end": 16.032,
+    "duration": 12.032,
+    "prompt": "Close-up portrait of the ginger tabby cat singing passionately on a rooftop stage, neon city skyline bokeh in background, expressive facial animation and lip sync, dramatic rim light",
+    "custom_image": "",
+    "audio_segment": "/workspace/projects/test_norm_beats/segments/scene_003.wav",
+    "clip_path": "",
+    "status": "ожидание"
+  }
+]
