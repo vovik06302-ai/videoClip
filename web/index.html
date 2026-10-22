@@ -815,8 +815,20 @@
                 <input type="text" id="songPath" class="mono" placeholder="C:\path\to\song.mp3" />
               </div>
               <div>
+                <label class="field-label">Загрузить аудио с диска (необязательно, иначе трек сгенерируется по тексту)</label>
+                <input type="file" id="audioFileInput" accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*" onchange="uploadSongAudio(this)" />
+              </div>
+              <div>
                 <label class="field-label">Изображение главного героя (передаётся только в сцены lip-sync)</label>
                 <input type="text" id="heroImage" class="mono" placeholder="C:\AI\assets\hero_cat.png" onchange="saveSongParams()" />
+              </div>
+              <div>
+                <label class="field-label">Загрузить фото героя с диска</label>
+                <input type="file" id="heroFileInput" accept="image/png,image/jpeg,image/webp" onchange="uploadHeroImage(this)" />
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <img id="heroPreview" alt="" style="display:none; max-height: 72px; max-width: 120px; border-radius: 6px; border: 1px solid var(--border);" />
+                <button class="btn btn-primary" style="width: 100%;" onclick="runAutoPipeline()" title="Текст песни + фото → готовый клип без лишних шагов">🚀 Сделать клип автоматически (минимум участия)</button>
               </div>
             </div>
           </div>
@@ -1375,6 +1387,68 @@
       if (!path) return;
       await api("/api/song/set_file", "POST", { path });
       await refreshState(true);
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadHeroImage(inputEl) {
+      const file = inputEl.files && inputEl.files[0];
+      if (!file) return;
+      try {
+        const b64 = await readFileAsBase64(file);
+        const res = await api("/api/upload/hero_image", "POST", { file_base64: b64, filename: file.name });
+        if (res && res.ok) {
+          document.getElementById("heroImage").value = res.hero_image || "";
+          const prev = document.getElementById("heroPreview");
+          prev.src = `/api/media?path=${encodeURIComponent(res.hero_image)}`;
+          prev.style.display = "inline-block";
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      await refreshState();
+    }
+
+    async function uploadSongAudio(inputEl) {
+      const file = inputEl.files && inputEl.files[0];
+      if (!file) return;
+      try {
+        const b64 = await readFileAsBase64(file);
+        const res = await api("/api/upload/song_audio", "POST", { file_base64: b64, filename: file.name });
+        if (res && res.ok) {
+          document.getElementById("songPath").value = res.song_path || "";
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      await refreshState(true);
+    }
+
+    async function runAutoPipeline() {
+      localLogCleared = false;
+      setActivePipelineStage(1);
+      // Сохраняем текущие параметры песни (текст, промпт, seed) перед запуском
+      await saveSongParams();
+      const payload = {
+        prompt: document.getElementById("songPrompt").value,
+        lyrics: document.getElementById("songLyrics").value,
+        duration: Number(document.getElementById("songDuration").value || 30),
+        seed: Number(document.getElementById("songSeed").value || 42),
+        preset: document.getElementById("presetSelect") ? document.getElementById("presetSelect").value : "cyber_cat",
+        scene_duration: Number(document.getElementById("sceneDurationInput") ? (document.getElementById("sceneDurationInput").value || 0) : 0) || null,
+        hero_image: document.getElementById("heroImage").value.trim(),
+        audio_path: document.getElementById("songPath").value.trim()
+      };
+      const res = await api("/api/pipeline/auto", "POST", payload);
+      if (res && res.message) console.log(res.message);
+      await refreshState();
     }
 
     async function generateLyrics() {

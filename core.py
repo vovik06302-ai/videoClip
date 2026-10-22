@@ -1,10 +1,13 @@
 import os
+import io
 import sys
 import re
 import json
 import time
 import math
+import base64
 import shutil
+import hashlib
 import tempfile
 import urllib.request
 import urllib.parse
@@ -292,6 +295,147 @@ class StudioCore:
                 f"сцен в раскадровке: {len(storyboard)}"
             )
         return self.state
+
+    # -------------------------------------------------------------------------
+    # Загрузка файлов из веб-интерфейса (фото героя / аудио песни)
+    # -------------------------------------------------------------------------
+    ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+    ALLOWED_AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac"}
+
+    def _save_upload_b64(
+        self,
+        file_b64: str,
+        filename: str,
+        subdir: str,
+        allowed_exts: set,
+        dest_name: str,
+        max_bytes: int = 25 * 1024 * 1024,
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> str:
+        """Сохраняет файл из base64 в папку проекта. Возвращает абсолютный путь."""
+        raw_b64 = str(file_b64).strip()
+        # Поддержка data:URL из input[type=file] (data:image/png;base64,....)
+        if raw_b64.startswith("data:") and "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw_b64)
+        except Exception as exc:
+            raise ValueError(f"Некорректные данные файла (base64): {exc}")
+        if not data:
+            raise ValueError("Пустой файл.")
+        if len(data) > max_bytes:
+            raise ValueError(f"Файл слишком большой ({len(data) // (1024 * 1024)} МБ, лимит {max_bytes // (1024 * 1024)} МБ).")
+
+        ext = Path(str(filename)).suffix.lower()
+        if ext not in allowed_exts:
+            ext = ""
+        proj_dir = self.get_project_dir()
+        target_dir = proj_dir / subdir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        dest = target_dir / f"{dest_name}{ext or ''}"
+        dest.write_bytes(data)
+
+        if log_cb:
+            digest = hashlib.sha256(data).hexdigest()[:12]
+            log_cb(f"[UPLOAD] {dest.name} ({len(data) / 1024:.1f} КБ, sha256:{digest}) сохранён в проект '{proj_dir.name}'.")
+        return str(dest.resolve())
+
+    def upload_hero_image(self, file_b64: str, filename: str, log_cb: Optional[Callable[[str], None]] = None) -> str:
+        path = self._save_upload_b64(
+            file_b64, filename, "assets", self.ALLOWED_IMAGE_EXTS,
+            f"hero_{int(time.time())}", log_cb=log_cb
+        )
+        self.save_song_request(dict(self.state.get("song_request", {})), hero_image=path)
+        if log_cb:
+            log_cb("[UPLOAD] Изображение героя применено к сценам lip-sync.")
+        return path
+
+    def upload_song_audio(self, file_b64: str, filename: str, log_cb: Optional[Callable[[str], None]] = None) -> Tuple[str, float]:
+        tmp_name = f"upload_{int(time.time())}"
+        src_path = self._save_upload_b64(
+            file_b64, filename, "audio", self.ALLOWED_AUDIO_EXTS,
+            tmp_name, max_bytes=80 * 1024 * 1024, log_cb=log_cb
+        )
+        final_path, duration = self.set_song_file(src_path, copy_to_project=True, log_cb=log_cb)
+        # Если расширение загруженного файла не mp3 — пересохраняем через ffmpeg в канонический song.mp3
+        if Path(final_path).suffix.lower() != ".mp3" and self._ffmpeg_available():
+            canonical = Path(final_path).parent / "song.mp3"
+            try:
+                subprocess.run(
+                    [self._ffmpeg_bin(), "-y", "-i", final_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", str(canonical)],
+                    capture_output=True, timeout=300
+                )
+                if canonical.exists() and canonical.stat().st_size > 1024:
+                    Path(final_path).unlink(missing_ok=True)
+                    self.state["song_path"] = str(canonical.resolve())
+                    self.save_song_request(self.state["song_request"])
+                    final_path = str(canonical.resolve())
+            except Exception:
+                pass
+        return final_path, duration
+
+    def _ffmpeg_bin(self) -> str:
+        return str(self.config.get("ffmpeg_path", "ffmpeg"))
+
+    def _ffmpeg_available(self) -> bool:
+        try:
+            subprocess.run([self._ffmpeg_bin(), "-version"], capture_output=True, timeout=10)
+            return True
+        except Exception:
+            return False
+
+    def run_auto_pipeline(
+        self,
+        prompt: str,
+        lyrics: str,
+        duration: float,
+        seed: int,
+        preset_name: str = "cyber_cat",
+        scene_duration: Optional[float] = None,
+        audio_path: Optional[str] = None,
+        hero_image: Optional[str] = None,
+        output_name: str = "final_music_video.mp4",
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> str:
+        """
+        Автосценарий «минимум участия»: текст песни + фото → готовый клип одной кнопкой.
+        Шаги: (опц.) генерация трека ACE-Step → раскадровка → нарезка аудио →
+        рендер всех сцен ComfyUI → финальная сборка MP4.
+        """
+        def step(msg: str) -> None:
+            if log_cb:
+                log_cb(f"[AUTO] {msg}")
+
+        if hero_image:
+            self.save_song_request({"prompt": prompt, "lyrics": lyrics}, hero_image=hero_image)
+            step("Фото героя принято.")
+
+        if audio_path:
+            _, dur = self.set_song_file(audio_path, copy_to_project=True, log_cb=log_cb)
+            step(f"Аудиофайл загружен, длительность {dur:.2f} сек.")
+        elif lyrics.strip():
+            step("Трек отсутствует — генерируем песню в ACE-Step по тексту...")
+            gen_path = self.generate_song_ace(prompt, lyrics, duration=duration, seed=seed, log_cb=log_cb)
+            if gen_path:
+                audio_path = gen_path
+            else:
+                step("ACE-Step вернул пустой результат, пробуем существующий трек проекта.")
+
+        if not self.state.get("song_path"):
+            raise RuntimeError("Нет аудиодорожки: сгенерируйте трек или загрузите аудиофайл.")
+
+        storyboard = self.generate_storyboard_from_preset(preset_name=preset_name, scene_duration=scene_duration, log_cb=log_cb)
+        step(f"Раскадровка: {len(storyboard)} сцен.")
+
+        self.slice_audio_segments(log_cb=log_cb)
+        step("Аудио нарезано по сценам.")
+
+        self.queue_all_scenes(skip_completed=bool(self.config.get("skip_completed", True)), log_cb=log_cb)
+        step("Все сцены отрендерены.")
+
+        out_path = self.assemble_video(output_name=output_name, log_cb=log_cb)
+        step(f"Готово! Финальный клип: {out_path}")
+        return out_path
 
     def save_song_request(self, song_request: Dict[str, Any], hero_image: Optional[str] = None) -> None:
         self.state["song_request"].update(song_request)

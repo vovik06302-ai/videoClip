@@ -189,6 +189,68 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "song_path": final_path, "song_duration": dur, "state": studio.state})
                 return
 
+            if route == "/api/upload/hero_image":
+                path = studio.upload_hero_image(
+                    file_b64=str(body.get("file_base64", "")),
+                    filename=str(body.get("filename", "hero.png")),
+                    log_cb=append_log
+                )
+                self._send_json({"ok": True, "hero_image": path, "state": studio.state})
+                return
+
+            if route == "/api/upload/song_audio":
+                path, dur = studio.upload_song_audio(
+                    file_b64=str(body.get("file_base64", "")),
+                    filename=str(body.get("filename", "song.mp3")),
+                    log_cb=append_log
+                )
+                self._send_json({"ok": True, "song_path": path, "song_duration": dur, "state": studio.state})
+                return
+
+            if route == "/api/pipeline/auto":
+                hero_image = str(body.get("hero_image", "")).strip() or studio.state.get("hero_image", "")
+                if body.get("hero_image_base64"):
+                    hero_image = studio.upload_hero_image(
+                        file_b64=str(body.get("hero_image_base64")),
+                        filename=str(body.get("hero_image_filename", "hero.png")),
+                        log_cb=append_log
+                    )
+                audio_path = str(body.get("audio_path", "")).strip() or None
+                if body.get("audio_base64"):
+                    audio_path, _ = studio.upload_song_audio(
+                        file_b64=str(body.get("audio_base64")),
+                        filename=str(body.get("audio_filename", "song.mp3")),
+                        log_cb=append_log
+                    )
+
+                prompt = str(body.get("prompt", ""))
+                lyrics = str(body.get("lyrics", ""))
+                dur = float(body.get("duration", 30.0))
+                seed = int(body.get("seed", 42))
+                preset = str(body.get("preset", "cyber_cat"))
+                scene_dur_raw = body.get("scene_duration")
+                scene_dur = float(scene_dur_raw) if scene_dur_raw else None
+
+                def _bg_auto() -> None:
+                    try:
+                        studio.run_auto_pipeline(
+                            prompt=prompt,
+                            lyrics=lyrics,
+                            duration=dur,
+                            seed=seed,
+                            preset_name=preset,
+                            scene_duration=scene_dur,
+                            audio_path=audio_path,
+                            hero_image=hero_image or None,
+                            log_cb=append_log
+                        )
+                    except Exception as exc:
+                        append_log(f"[AUTO ERROR] {exc}")
+
+                threading.Thread(target=_bg_auto, daemon=True).start()
+                self._send_json({"ok": True, "message": "Автоконвейер запущен: текст песни + фото → готовый клип"})
+                return
+
             if route == "/api/song/generate_lyrics":
                 res = studio.generate_lyrics_ace(
                     music_prompt=str(body.get("prompt", "")),
