@@ -8,6 +8,7 @@ import math
 import base64
 import shutil
 import hashlib
+import threading
 import tempfile
 import urllib.request
 import urllib.parse
@@ -144,6 +145,8 @@ class StudioCore:
             pass
         self.ace_process: Optional[subprocess.Popen] = None
         self.comfy_processes: Dict[int, subprocess.Popen] = {}
+        # Отмена очереди рендера: текущая сцена дорендеривается, следующие не запускаются
+        self.cancel_requested = threading.Event()
         self.state: Dict[str, Any] = {
             "project_name": "default_project",
             "hero_image": "",
@@ -155,7 +158,9 @@ class StudioCore:
                 "duration": 30.0,
                 "seed": 42
             },
-            "storyboard": []
+            "storyboard": [],
+            "beat_boundaries": [],
+            "queue_progress": {"total": 0, "done": 0, "failed": 0, "current": ""}
         }
         self.load_config()
         self.open_project(self.state["project_name"])
@@ -288,6 +293,20 @@ class StudioCore:
                     scene["status"] = "ожидание"
 
         self.state["storyboard"] = storyboard
+
+        # 3.1 Восстановление границ сцен по битам (data/beat_boundaries.json)
+        beats_file = proj_dir / "data" / "beat_boundaries.json"
+        boundaries: List[float] = []
+        if beats_file.exists():
+            try:
+                bd = json.loads(beats_file.read_text(encoding="utf-8"))
+                if isinstance(bd, dict) and isinstance(bd.get("boundaries"), list):
+                    boundaries = [float(b) for b in bd["boundaries"]]
+            except Exception as e:
+                if log_cb:
+                    log_cb(f"[WARN] Ошибка чтения beat_boundaries.json: {e}")
+        self.state["beat_boundaries"] = boundaries
+
         self.save_storyboard(storyboard)
         if log_cb:
             log_cb(
@@ -384,6 +403,192 @@ class StudioCore:
         except Exception:
             return False
 
+    # -------------------------------------------------------------------------
+    # Мастеринг трека (loudnorm) и автоподбор границ сцен по битам (librosa)
+    # -------------------------------------------------------------------------
+    def normalize_track(
+        self,
+        input_path: Optional[str] = None,
+        target_lufs: float = -14.0,
+        true_peak_db: float = -1.5,
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> str:
+        """
+        Мастеринг-проход ffmpeg loudnorm: сохраняет результат как отдельный файл
+        <имя>_norm.mp3 рядом с оригиналом. Оригинальный трек НЕ перезаписывается.
+        После нормализации новый файл становится активным треком проекта.
+        """
+        def say(msg: str) -> None:
+            if log_cb:
+                log_cb(msg)
+
+        if not self._ffmpeg_available():
+            raise RuntimeError(
+                f"ffmpeg не найден ('{self._ffmpeg_bin()}'). Укажите путь к ffmpeg в настройках (config: ffmpeg_path)."
+            )
+
+        src = Path(input_path or self.state.get("song_path", ""))
+        if not str(input_path or self.state.get("song_path", "")).strip() or not src.exists():
+            raise FileNotFoundError("Сначала выберите или сгенерируйте аудиофайл трека.")
+
+        out_path = src.with_name(f"{src.stem}_norm.mp3")
+        af = f"loudnorm=I={target_lufs}:TP={true_peak_db}"
+        cmd = [self._ffmpeg_bin(), "-y", "-i", str(src), "-af", af, str(out_path)]
+        say(f"[MASTERING] Нормализация громкости: {' '.join(cmd)}")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if proc.returncode != 0 or not out_path.exists() or out_path.stat().st_size < 1024:
+            tail = (proc.stderr or "").strip().splitlines()[-3:]
+            raise RuntimeError(f"Ошибка ffmpeg при нормализации: {' | '.join(tail) or 'код возврата ' + str(proc.returncode)}")
+
+        size_kb = out_path.stat().st_size / 1024
+        dur = self.probe_audio_duration(str(out_path))
+        say(f"[MASTERING] Готово: {out_path.name} ({size_kb:.0f} КБ, {dur:.2f} сек), цель I={target_lufs} LUFS, TP={true_peak_db} dBTP. Оригинал сохранён.")
+
+        # Нормализованный трек становится основным треком проекта
+        self.set_song_file(str(out_path.resolve()), copy_to_project=True, log_cb=log_cb)
+        return str(out_path.resolve())
+
+    @staticmethod
+    def _snap_to_bar(times: List[float], beat_period: float, bar_seconds: float, total_dur: float) -> List[float]:
+        """
+        Из последовательности долей (beat times) выбирает начала тактов:
+        каждую сильную долю, ближайшую к сетке тактов (bar_length = beats_per_bar * beat_period).
+        """
+        snapped: List[float] = []
+        seen: set = set()
+        for t in times:
+            k = round(t / bar_seconds)
+            cand = k * bar_seconds
+            if cand <= 0.05 or cand >= total_dur - 0.05:
+                continue
+            # берём ближайший бит к расчётной границе такта
+            nearest = min(times, key=lambda b: abs(b - cand))
+            if abs(nearest - cand) > beat_period * 1.5:
+                val = round(cand, 3)
+            else:
+                val = round(nearest, 3)
+            if 0.05 < val < total_dur - 0.05 and val not in seen:
+                seen.add(val)
+                snapped.append(val)
+        snapped.sort()
+        return snapped
+
+    def detect_beat_boundaries(
+        self,
+        audio_path: Optional[str] = None,
+        beats_per_bar: int = 4,
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Автоподбор границ сцен по битам через librosa (beat tracking).
+        Возвращает: tempo, beat period, интервал такта и список начал тактов (сильных долей).
+        Результат сохраняется в state["beat_boundaries"] и projects/<имя>/data/beat_boundaries.json.
+        """
+        def say(msg: str) -> None:
+            if log_cb:
+                log_cb(msg)
+
+        try:
+            import librosa  # локальный импорт: тяжёлая зависимость нужна только здесь
+        except ImportError:
+            raise RuntimeError(
+                "Модуль librosa не установлен. Установите зависимости: pip install -r requirements.txt"
+            )
+
+        src = Path(audio_path or self.state.get("song_path", ""))
+        if not str(audio_path or self.state.get("song_path", "")).strip() or not src.exists():
+            raise FileNotFoundError("Сначала выберите или сгенерируйте аудиофайл трека.")
+
+        y, sr = librosa.load(str(src), mono=True)
+        total_dur = float(len(y) / sr)
+        tempo, beats = librosa.beat.beat_track(y=y, sr=sr, trim=False)
+        tempo_val = float(tempo.item() if hasattr(tempo, "item") else tempo)
+        beat_times = librosa.frames_to_time(beats, sr=sr)
+        beat_period = (60.0 / tempo_val) if tempo_val > 0 else 0.5
+        bar_seconds = beat_period * max(1, int(beats_per_bar))
+
+        boundaries = self._snap_to_bar(list(beat_times), beat_period, bar_seconds, total_dur)
+
+        result = {
+            "tempo": round(tempo_val, 2),
+            "beat_period": round(beat_period, 4),
+            "beats_per_bar": int(beats_per_bar),
+            "bar_seconds": round(bar_seconds, 4),
+            "duration": round(total_dur, 3),
+            "boundaries": boundaries,
+        }
+        self.state["beat_boundaries"] = boundaries
+        try:
+            proj_dir = self.get_project_dir()
+            (proj_dir / "data").mkdir(parents=True, exist_ok=True)
+            (proj_dir / "data" / "beat_boundaries.json").write_text(
+                json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:
+            say(f"[BEATS] Предупреждение: не удалось сохранить beat_boundaries.json: {exc}")
+
+        say(
+            f"[BEATS] Темп {tempo_val:.1f} BPM, такт {bar_seconds:.2f} сек — найдено "
+            f"{len(beat_times)} долей, предложено {len(boundaries)} границ сцен на началах тактов."
+        )
+        return result
+
+    def apply_beat_boundaries(
+        self,
+        boundaries: List[float],
+        preset_name: str = "cyber_cat",
+        log_cb: Optional[Callable[[str], None]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Пересобирает раскадровку так, чтобы границы сцен совпадали с переданными
+        метками (началами тактов). Метки сортируются, дубликаты удаляются;
+        последняя сцена автоматически растягивается до конца трека.
+        """
+        marks = sorted({round(float(b), 3) for b in boundaries if 0.05 < float(b)})
+        total = float(self.state.get("song_duration") or 0.0)
+        if total <= 0 and self.state.get("song_path"):
+            total = self.probe_audio_duration(self.state["song_path"])
+        cuts = [0.0] + [m for m in marks if m < total - 0.5] + [total] if total > 0 else [0.0] + [m for m in marks]
+
+        templates = STORYBOARD_PRESETS.get(preset_name) or STORYBOARD_PRESETS["cyber_cat"]
+        proj_dir = self.get_project_dir()
+        storyboard: List[Dict[str, Any]] = []
+        idx = 1
+        for i in range(len(cuts) - 1):
+            start, end = cuts[i], cuts[i + 1]
+            dur = round(end - start, 4)
+            if dur < 0.3:
+                continue
+            tpl = templates[(idx - 1) % len(templates)]
+            stype = tpl["type"]
+            clip_path = proj_dir / "clips" / f"scene_{idx:03d}.mp4"
+            seg_path = proj_dir / "segments" / f"scene_{idx:03d}.wav"
+            is_ready = clip_path.exists() and clip_path.stat().st_size > 1024
+            storyboard.append({
+                "id": idx,
+                "type": stype,
+                "type_label": SCENE_TYPE_LABELS.get(stype, stype),
+                "start": round(start, 4),
+                "end": round(end, 4),
+                "duration": dur,
+                "prompt": tpl["prompt"],
+                "custom_image": "",
+                "audio_segment": str(seg_path.resolve()) if seg_path.exists() else "",
+                "clip_path": str(clip_path.resolve()) if is_ready else "",
+                "status": "готово" if is_ready else "ожидание"
+            })
+            idx += 1
+
+        # хвост после последней метки присоединяем к финальной сцене
+        if total > 0 and storyboard and cuts[-1] < total - 0.05:
+            storyboard[-1]["end"] = round(total, 4)
+            storyboard[-1]["duration"] = round(total - storyboard[-1]["start"], 4)
+
+        self.save_storyboard(storyboard)
+        if log_cb:
+            log_cb(f"[BEATS] Раскадровка перестроена по битам: {len(storyboard)} сцен.")
+        return storyboard
+
     def run_auto_pipeline(
         self,
         prompt: str,
@@ -425,7 +630,19 @@ class StudioCore:
             raise RuntimeError("Нет аудиодорожки: сгенерируйте трек или загрузите аудиофайл.")
 
         storyboard = self.generate_storyboard_from_preset(preset_name=preset_name, scene_duration=scene_duration, log_cb=log_cb)
-        step(f"Раскадровка: {len(storyboard)} сцен.")
+
+        # Автоподбор границ сцен по битам (если доступны аудио + librosa) — монтаж попадает в такты
+        beat_bounds: List[float] = []
+        try:
+            res = self.detect_beat_boundaries(log_cb=log_cb)
+            beat_bounds = res.get("boundaries", [])
+        except Exception as exc:
+            step(f"Границы по битам недоступны ({exc}) — используются равномерные сцены.")
+        if len(beat_bounds) >= 2:
+            storyboard = self.apply_beat_boundaries(beat_bounds, preset_name=preset_name, log_cb=log_cb)
+            step(f"Границы сцен выровнены по началам тактов: {len(storyboard)} сцен.")
+        else:
+            step(f"Раскадровка: {len(storyboard)} сцен.")
 
         self.slice_audio_segments(log_cb=log_cb)
         step("Аудио нарезано по сценам.")
@@ -678,6 +895,47 @@ class StudioCore:
     # -------------------------------------------------------------------------
     # ACE-Step 1.5 API: Генерация текста (/format_input) и песни (/release_task)
     # -------------------------------------------------------------------------
+    @staticmethod
+    def normalize_song_tags(music_prompt: str) -> str:
+        """
+        Приводит теги стиля к формату, который лучше всего понимает ACE-Step:
+        "[Genre subgenre, Mood, Instruments, Tempo BPM, Vocal type]" —
+        в квадратных скобках, через запятую, без предложений и лишних слов.
+        """
+        raw = (music_prompt or "").strip()
+        if not raw:
+            return ""
+        # уже обёрнуто в [ ... ] — не трогаем
+        if raw.startswith("[") and "]" in raw:
+            return raw
+        # убираем кавычки, переводим строки в запятые
+        cleaned = raw.replace('"', "").replace("\n", ", ")
+        parts = [p.strip(" .;") for p in re.split(r"[,;]", cleaned) if p.strip(" .;")]
+        return "[" + ", ".join(parts) + "]"
+
+    @staticmethod
+    def validate_lyrics_structure(lyrics: str) -> List[str]:
+        """
+        Эвристики качества текста песни для ACE-Step. Возвращает список
+        предупреждений (пустой список = текст выглядит хорошо).
+        """
+        warnings: List[str] = []
+        text = (lyrics or "").strip()
+        if not text:
+            return ["Текст пуст — ACE-Step сгенерирует инструментал или случайный вокал."]
+        upper = text.upper()
+        if "[CHORUS]" not in upper:
+            warnings.append("Нет секции [Chorus] — припев делает песню запоминающейся.")
+        if "[VERSE" not in upper:
+            warnings.append("Нет секций [Verse] — куплеты задают историю между припевами.")
+        lines = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("[")]
+        avg_len = sum(len(l.split()) for l in lines) / max(len(lines), 1)
+        if avg_len > 12:
+            warnings.append(f"Средняя строка ~{avg_len:.0f} слов — для ритуемого вокала лучше 4–9 слов в строке.")
+        if len(text) < 120:
+            warnings.append("Текст очень короткий — треку может не хватить материала на полную длительность.")
+        return warnings
+
     def generate_lyrics_ace(
         self,
         music_prompt: str,
@@ -685,6 +943,14 @@ class StudioCore:
         log_cb: Optional[Callable[[str], None]] = None
     ) -> Dict[str, str]:
         ace_url = self.config.get("ace_url", "http://127.0.0.1:8001").rstrip("/")
+        normalized_tags = self.normalize_song_tags(music_prompt)
+        if normalized_tags != music_prompt.strip():
+            if log_cb:
+                log_cb(f"[ACE] Теги стиля нормализованы: {normalized_tags}")
+            music_prompt = normalized_tags
+        for warn in self.validate_lyrics_structure(lyrics_hint):
+            if log_cb:
+                log_cb(f"[LYRICS][СОВЕТ] {warn}")
         payload = {
             "model": "acestep-5Hz-lm-0.6B",
             "prompt": music_prompt.strip(),
@@ -711,6 +977,11 @@ class StudioCore:
     ) -> str:
         ace_url = self.config.get("ace_url", "http://127.0.0.1:8001").rstrip("/")
         proj_dir = self.get_project_dir()
+        # Теги стиля приводим к каноничному формату ACE-Step [Genre, Mood, ...]
+        prompt = self.normalize_song_tags(prompt) or prompt
+        for warn in self.validate_lyrics_structure(lyrics):
+            if log_cb:
+                log_cb(f"[LYRICS][СОВЕТ] {warn}")
         self.save_song_request({
             "prompt": prompt,
             "lyrics": lyrics,
@@ -721,7 +992,7 @@ class StudioCore:
         payload = {
             "model": "acestep-v15-turbo",
             "prompt": prompt,
-            "lyrics": lyrics,
+            "lyrics": lyrics.strip(),
             "audio_duration": float(duration),
             "duration": float(duration),
             "seed": int(seed),
@@ -1203,6 +1474,42 @@ class StudioCore:
             log_cb(f"[COMFY] Сцена #{scene_id:03d} успешно сохранена: {clip_dest.name}")
         return str(clip_dest.resolve())
 
+    def cancel_queue(self, log_cb: Optional[Callable[[str], None]] = None) -> None:
+        """Отмена очереди рендера: текущая сцена дорендеривается, следующие не запускаются."""
+        self.cancel_requested.set()
+        if log_cb:
+            log_cb("[QUEUE] Запрошена остановка очереди. Текущая сцена будет дорендерена, следующие пропущены.")
+
+    def _render_one_scene_safely(
+        self,
+        scene: Dict[str, Any],
+        server_url: str,
+        log_cb: Optional[Callable[[str], None]],
+        lock: "threading.Lock",
+        total: int
+    ) -> bool:
+        """Рендер одной сцены с изоляцией ошибок. Возвращает True при успехе."""
+        sid = int(scene["id"])
+        try:
+            self.render_single_scene(sid, server_url=server_url, log_cb=log_cb)
+            with lock:
+                self.state["queue_progress"]["done"] += 1
+            return True
+        except Exception as exc:
+            # Ошибка одной сцены не должна останавливать всю очередь
+            for sc in self.state["storyboard"]:
+                if int(sc["id"]) == sid:
+                    sc["status"] = "ошибка"
+                    break
+            self.save_storyboard()
+            if log_cb:
+                log_cb(f"[QUEUE] ✗ Сцена #{sid:03d} завершилась с ошибкой: {exc}. Продолжаем очередь.")
+            with lock:
+                self.state["queue_progress"]["failed"] += 1
+                done_now = self.state["queue_progress"]["done"] + self.state["queue_progress"]["failed"]
+                log_cb(f"[QUEUE] Прогресс: {done_now}/{total}")
+            return False
+
     def queue_all_scenes(
         self,
         skip_completed: Optional[bool] = None,
@@ -1213,6 +1520,8 @@ class StudioCore:
         - Если онлайн 1 сервер (1 GPU): направляет все сцены в один поток (шаг 1).
         - Если онлайн оба сервера (2 GPU): распределяет задачи параллельно в 2 потока (шаг 2).
         - Пропускает сцены со статусом 'готово' и физически существующим MP4 при skip_completed=True.
+        - Ошибка одной сцены не останавливает очередь; поддержана отмена (cancel_requested)
+          и прогресс в state['queue_progress'] = {total, done, failed, current}.
         """
         import concurrent.futures
 
@@ -1224,17 +1533,29 @@ class StudioCore:
             raise RuntimeError("Ни один сервер ComfyUI (8188, 8189) не запущен.")
 
         pending_scenes: List[Dict[str, Any]] = []
+        skipped_count = 0
         for scene in self.state["storyboard"]:
             clip_p = Path(scene.get("clip_path", "")) if scene.get("clip_path") else None
             if skip_completed and scene.get("status") == "готово" and clip_p and clip_p.exists() and clip_p.stat().st_size > 1024:
                 if log_cb:
                     log_cb(f"[SKIP] Сцена #{int(scene['id']):03d} уже готова ({clip_p.name}), пропускаем.")
+                skipped_count += 1
                 continue
             pending_scenes.append(scene)
+
+        # Инициализация прогресса очереди
+        self.cancel_requested.clear()
+        self.state["queue_progress"] = {
+            "total": len(pending_scenes),
+            "done": 0,
+            "failed": 0,
+            "current": f"Сцена 0/{len(pending_scenes)}"
+        }
 
         if not pending_scenes:
             if log_cb:
                 log_cb("[QUEUE] Все сцены уже отрендерены.")
+                log_cb(f"[QUEUE] ИТОГ: готово 0, ошибок 0, пропущено {skipped_count}.")
             return [s.get("clip_path", "") for s in self.state["storyboard"] if s.get("clip_path")]
 
         num_servers = len(online_servers)
@@ -1247,18 +1568,38 @@ class StudioCore:
             log_cb(f"[QUEUE] К рендеру: {len(pending_scenes)} сцен. Режим: {mode_desc}")
 
         rendered_paths: List[str] = []
+        progress_lock = threading.Lock()
+        cancelled = False
+
+        def _set_current(sid: int) -> None:
+            with progress_lock:
+                qp = self.state["queue_progress"]
+                qp["current"] = f"Сцена {min(qp['done'] + qp['failed'] + 1, qp['total'])}/{qp['total']} (#{sid:03d})"
+
         if num_servers == 1:
             srv_url = online_servers[0]["url"]
             for sc in pending_scenes:
-                path = self.render_single_scene(int(sc["id"]), server_url=srv_url, log_cb=log_cb)
-                rendered_paths.append(path)
+                if self.cancel_requested.is_set():
+                    cancelled = True
+                    remaining = sum(1 for x in pending_scenes if int(x["id"]) >= int(sc["id"]))
+                    skipped_count += remaining
+                    if log_cb:
+                        log_cb(f"[QUEUE] Остановлено пользователем. Не выполнено сцен: {remaining}.")
+                    break
+                _set_current(int(sc["id"]))
+                ok = self._render_one_scene_safely(sc, srv_url, log_cb, progress_lock, len(pending_scenes))
+                if ok:
+                    rendered_paths.append(sc.get("clip_path", ""))
         else:
-            def _worker(server_info: Dict[str, Any], scenes_slice: List[Dict[str, Any]]) -> List[str]:
-                out: List[str] = []
+            def _worker(server_info: Dict[str, Any], scenes_slice: List[Dict[str, Any]]) -> None:
+                nonlocal cancelled
                 for sc in scenes_slice:
-                    p = self.render_single_scene(int(sc["id"]), server_url=server_info["url"], log_cb=log_cb)
-                    out.append(p)
-                return out
+                    if self.cancel_requested.is_set():
+                        with progress_lock:
+                            cancelled = True
+                        return
+                    _set_current(int(sc["id"]))
+                    self._render_one_scene_safely(sc, server_info["url"], log_cb, progress_lock, len(pending_scenes))
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=num_servers) as executor:
                 futures = []
@@ -1267,7 +1608,23 @@ class StudioCore:
                     if slice_for_gpu:
                         futures.append(executor.submit(_worker, srv, slice_for_gpu))
                 for fut in concurrent.futures.as_completed(futures):
-                    rendered_paths.extend(fut.result())
+                    fut.result()  # исключения рабочих потоков уже изолированы внутри
+
+            if self.cancel_requested.is_set():
+                cancelled = True
+            # Пути готовых клипов берём из раскадровки (порядок в 2 потоках непредсказуем)
+            rendered_paths = [
+                sc.get("clip_path", "") for sc in self.state["storyboard"]
+                if sc.get("status") == "готово" and sc.get("clip_path")
+            ]
+
+        qp = self.state["queue_progress"]
+        qp["current"] = "остановлено" if cancelled else ("завершено" if qp["failed"] == 0 else "завершено с ошибками")
+        if log_cb:
+            log_cb(
+                f"[QUEUE] ИТОГ: готово {qp['done']}, ошибок {qp['failed']}, пропущено {skipped_count}"
+                + (". Очередь остановлена пользователем." if cancelled else ".")
+            )
 
         return rendered_paths
 

@@ -299,6 +299,42 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "segments": files, "storyboard": studio.state["storyboard"]})
                 return
 
+            if route == "/api/audio/normalize":
+                # Мастеринг loudnorm может занять время — выполняем в фоне
+                def _bg_normalize() -> None:
+                    try:
+                        out_path = studio.normalize_track(
+                            input_path=str(body.get("path", "")).strip() or None,
+                            target_lufs=float(body.get("target_lufs", -14.0)),
+                            true_peak_db=float(body.get("true_peak", -1.5)),
+                            log_cb=append_log
+                        )
+                        append_log(f"[MASTERING] Нормализованный трек готов: {out_path}")
+                    except Exception as exc:
+                        append_log(f"[MASTERING ERROR] {exc}")
+
+                threading.Thread(target=_bg_normalize, daemon=True).start()
+                self._send_json({"ok": True, "message": "Нормализация громкости запущена (результат: *_norm.mp3, оригинал не перезаписывается)"})
+                return
+
+            if route == "/api/audio/beats":
+                res = studio.detect_beat_boundaries(
+                    audio_path=str(body.get("path", "")).strip() or None,
+                    beats_per_bar=int(body.get("beats_per_bar", 4)),
+                    log_cb=append_log
+                )
+                self._send_json({"ok": True, **res, "state": studio.state})
+                return
+
+            if route == "/api/audio/beats/apply":
+                bounds = body.get("boundaries")
+                if not isinstance(bounds, list):
+                    bounds = studio.state.get("beat_boundaries", [])
+                preset = str(body.get("preset", "")).strip() or "cyber_cat"
+                sb = studio.apply_beat_boundaries([float(b) for b in bounds], preset_name=preset, log_cb=append_log)
+                self._send_json({"ok": True, "storyboard": sb, "beat_boundaries": studio.state.get("beat_boundaries", []), "state": studio.state})
+                return
+
             if route == "/api/comfy/render_scene":
                 sid = int(body.get("id", 1))
 
@@ -323,6 +359,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
                 threading.Thread(target=_bg_all, daemon=True).start()
                 self._send_json({"ok": True, "message": "Очередь рендера всех сцен запущена"})
+                return
+
+            if route == "/api/comfy/cancel":
+                studio.cancel_queue(log_cb=append_log)
+                self._send_json({"ok": True, "message": "Запрошена остановка очереди после текущей сцены"})
                 return
 
             if route == "/api/video/assemble":

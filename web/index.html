@@ -795,18 +795,31 @@
 
             <div style="display: flex; flex-wrap: wrap; gap: 8px;">
               <button class="btn btn-secondary" onclick="generateLyrics()">Сгенерировать текст</button>
+              <button class="btn btn-secondary" onclick="insertLyricsTemplate()" title="Вставляет структуру [Verse] / [Pre-Chorus] / [Chorus] — ACE-Step лучше держит форму песни">Вставить шаблон</button>
+              <button class="btn btn-secondary" onclick="applyTagExample()" title="Формат тегов, который лучше всего понимает ACE-Step: [Genre, Mood, Instruments, BPM, Vocal]">Пример тегов</button>
               <button class="btn btn-primary" onclick="generateSong()">Сгенерировать трек</button>
               <button class="btn btn-secondary" onclick="setAudioFile()">FFprobe тест</button>
+              <button class="btn btn-secondary" id="normalizeBtn" onclick="normalizeTrack()" title="ffmpeg loudnorm I=-14 LUFS, TP=-1.5 dBTP: сохранит song_norm.mp3, оригинал не перезаписывается">Нормализовать трек</button>
               <button class="btn btn-secondary" onclick="saveSongParams()">Сохранить</button>
             </div>
 
             <!-- Interactive Audio Waveform Timeline with Scene Slice Markers -->
             <div class="waveform-box">
               <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
-                <span style="color: var(--text-muted);">Аудиоволна и разметка сцен (клик для прослушивания):</span>
+                <span style="color: var(--text-muted);">Аудиоволна и разметка сцен (клик для прослушивания, перетаскивание/двойной клик по оранжевым меткам битов):</span>
                 <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="toggleWavePlay()" id="wavePlayBtn">▶ Старт волны</button>
               </div>
               <canvas id="waveformCanvas" class="waveform-canvas" width="420" height="64"></canvas>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center;">
+                <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" onclick="detectBeats()" title="librosa beat tracking: границы сцен на началах тактов">🥁 Границы по битам</button>
+                <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" onclick="applyBeatMarkers()" title="Перестроить раскадровку по текущим меткам">Применить метки</button>
+                <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" onclick="clearBeatMarkers()" title="Убрать все метки битов">✕ Сбросить метки</button>
+                <label style="font-size: 11px; color: var(--text-muted);">Долей в такте:</label>
+                <select id="beatsPerBar" style="font-size: 11px; padding: 2px 4px;" onchange="detectBeats()">
+                  <option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+                </select>
+                <span id="beatInfo" style="font-size: 11px; color: var(--text-muted);"></span>
+              </div>
             </div>
 
             <div style="padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
@@ -933,6 +946,19 @@
                 <input type="checkbox" id="skipCompletedCheck" checked />
                 Пропускать готовые сцены
               </label>
+
+              <button class="btn btn-rose" id="cancelQueueBtn" onclick="cancelQueue()" disabled style="margin-left: 6px;">
+                Остановить очередь
+              </button>
+
+              <!-- Прогресс очереди рендера -->
+              <div id="queueProgressWrap" style="display: none; align-items: center; gap: 8px; margin-left: 8px;">
+                <span id="queueProgressText" class="mono" style="font-size: 12px; color: var(--amber-text); white-space: nowrap;">Сцена 0/0</span>
+                <div style="width: 140px; height: 8px; background: rgba(30,41,59,0.9); border: 1px solid rgba(51,65,85,0.8); border-radius: 4px; overflow: hidden;">
+                  <div id="queueProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #f59e0b, #34d399); transition: width 0.4s;"></div>
+                </div>
+                <span id="queueProgressFailed" class="mono" style="font-size: 11px; color: #f87171;"></span>
+              </div>
             </div>
 
             <button class="btn btn-emerald" onclick="assembleVideo()">
@@ -999,6 +1025,8 @@
     let wavePlaying = false;
     let wavePlayhead = 0;
     let waveAnimId = null;
+    let beatMarkers = [];        // границы сцен по битам (секунды), редактируются вручную
+    let draggedMarkerIdx = -1;   // индекс метки, которую перетаскивают мышью
 
     function scrollToSection(id) {
       const el = document.getElementById(id);
@@ -1083,6 +1111,30 @@
       ctx.moveTo(px, 0);
       ctx.lineTo(px, h);
       ctx.stroke();
+
+      // Draw editable beat markers (начала тактов) — оранжевые линии с «ручкой» сверху
+      if (beatMarkers && beatMarkers.length) {
+        beatMarkers.forEach((t, i) => {
+          const mx = (Number(t) / totalDur) * w;
+          ctx.strokeStyle = "rgba(251, 146, 60, 0.85)";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(mx, 0);
+          ctx.lineTo(mx, h);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#fb923c";
+          ctx.beginPath();
+          ctx.arc(mx, 6, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#0f172a";
+          ctx.font = "bold 7px IBM Plex Mono, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(String(i + 1), mx, 8.5);
+          ctx.textAlign = "left";
+        });
+      }
     }
 
     function toggleWavePlay() {
@@ -1103,10 +1155,59 @@
       }
     }
 
+    function waveTotalDuration() {
+      return Math.max(5, Number(document.getElementById("songDuration").value || 30));
+    }
+
+    function markerAtPixel(canvas, clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (clientX - rect.left) * (canvas.width / rect.width);
+      const totalDur = waveTotalDuration();
+      let best = -1, bestDist = 9;
+      beatMarkers.forEach((t, i) => {
+        const mx = (Number(t) / totalDur) * canvas.width;
+        const d = Math.abs(mx - x);
+        if (d < bestDist) { bestDist = d; best = i; }
+      });
+      return best;
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
       const canvas = document.getElementById("waveformCanvas");
       if (canvas) {
+        canvas.style.cursor = "crosshair";
+        // Перетаскивание меток битов мышью
+        canvas.addEventListener("mousedown", (e) => {
+          const idx = markerAtPixel(canvas, e.clientX);
+          if (idx >= 0) {
+            draggedMarkerIdx = idx;
+            e.preventDefault();
+          }
+        });
+        canvas.addEventListener("mousemove", (e) => {
+          if (draggedMarkerIdx >= 0) {
+            const rect = canvas.getBoundingClientRect();
+            const frac = Math.max(0.01, Math.min(0.99, (e.clientX - rect.left) / rect.width));
+            beatMarkers[draggedMarkerIdx] = Math.round(frac * waveTotalDuration() * 1000) / 1000;
+            drawWaveform();
+          } else {
+            canvas.style.cursor = markerAtPixel(canvas, e.clientX) >= 0 ? "ew-resize" : "crosshair";
+          }
+        });
+        window.addEventListener("mouseup", () => { draggedMarkerIdx = -1; });
+        // Двойной клик по метке — удалить её
+        canvas.addEventListener("dblclick", (e) => {
+          const idx = markerAtPixel(canvas, e.clientX);
+          if (idx >= 0) {
+            beatMarkers.splice(idx, 1);
+            appendLocalLogLine(`[BEATS] Метка #${idx + 1} удалена вручную. Нажмите «Применить метки», чтобы перестроить раскадровку.`);
+            drawWaveform();
+            e.stopPropagation();
+          }
+        });
+        // Клик по пустому месту near playhead area: seek (не на метке)
         canvas.addEventListener("click", (e) => {
+          if (markerAtPixel(canvas, e.clientX) >= 0) return; // не мешаем работе с метками
           const rect = canvas.getBoundingClientRect();
           wavePlayhead = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
           drawWaveform();
@@ -1207,6 +1308,8 @@
       const st = data.state;
       const cfg = data.config;
 
+      updateQueueProgress(st.queue_progress);
+
       if (data.version && !latestUpdateInfo) {
         currentVersion = data.version;
         document.getElementById("versionStatusText").textContent =
@@ -1247,6 +1350,10 @@
       }
 
       currentStoryboard = st.storyboard || [];
+      // Не затираем метки, которые пользователь перетаскивает в данный момент;
+      // при ручном редактировании (перемещении) локальные метки сохраняются до «Применить метки»
+      const newMarkers = Array.isArray(st.beat_boundaries) ? st.beat_boundaries.map(Number) : [];
+      if (!(draggedMarkerIdx >= 0)) beatMarkers = newMarkers;
       renderStoryboardTable(currentStoryboard, cfg.fps || 24);
       drawWaveform();
 
@@ -1431,6 +1538,71 @@
       await refreshState(true);
     }
 
+    async function normalizeTrack() {
+      localLogCleared = false;
+      setActivePipelineStage(1);
+      const btn = document.getElementById("normalizeBtn");
+      btn.disabled = true;
+      btn.textContent = "Нормализация...";
+      appendLocalLogLine("[MASTERING] Запущена нормализация громкости (ffmpeg loudnorm I=-14:TP=-1.5). Результат: *_norm.mp3, оригинал не перезаписывается.");
+      try {
+        await api("/api/audio/normalize", "POST", {});
+      } catch (e) {
+        appendLocalLogLine(`[ERROR] ${e}`);
+      }
+      // статус и результат появятся в логе; даём фону время и обновляем состояние
+      setTimeout(async () => {
+        btn.disabled = false;
+        btn.textContent = "Нормализовать трек";
+        await refreshState(true);
+      }, 2500);
+    }
+
+    async function detectBeats() {
+      localLogCleared = false;
+      const info = document.getElementById("beatInfo");
+      info.textContent = "Анализ битов (librosa)...";
+      try {
+        const res = await api("/api/audio/beats", "POST", {
+          beats_per_bar: Number(document.getElementById("beatsPerBar").value || 4)
+        });
+        if (res.ok) {
+          beatMarkers = (res.boundaries || []).map(Number);
+          info.textContent = `${res.tempo} BPM · такт ${res.bar_seconds}s · меток: ${beatMarkers.length}`;
+          drawWaveform();
+        } else {
+          info.textContent = "";
+          appendLocalLogLine(`[BEATS ERROR] ${res.error || "ошибка анализа"}`);
+        }
+      } catch (e) {
+        info.textContent = "";
+        appendLocalLogLine(`[BEATS ERROR] ${e}`);
+      }
+      await refreshState(false);
+    }
+
+    async function applyBeatMarkers() {
+      localLogCleared = false;
+      if (!beatMarkers.length) {
+        appendLocalLogLine("[BEATS] Нет меток — сначала нажмите «Границы по битам» или добавьте/передвиньте метки на волне.");
+        return;
+      }
+      const preset = document.getElementById("presetSelect") ? document.getElementById("presetSelect").value : "cyber_cat";
+      const res = await api("/api/audio/beats/apply", "POST", { boundaries: beatMarkers, preset });
+      if (res.ok) {
+        appendLocalLogLine(`[BEATS] Раскадровка перестроена по меткам: ${(res.storyboard || []).length} сцен. Нажмите «Нарезать аудио», чтобы нарезать сегменты по новым границам.`);
+      } else {
+        appendLocalLogLine(`[BEATS ERROR] ${res.error || "ошибка применения меток"}`);
+      }
+      await refreshState(false);
+    }
+
+    function clearBeatMarkers() {
+      beatMarkers = [];
+      document.getElementById("beatInfo").textContent = "Метки очищены.";
+      drawWaveform();
+    }
+
     async function runAutoPipeline() {
       localLogCleared = false;
       setActivePipelineStage(1);
@@ -1449,6 +1621,57 @@
       const res = await api("/api/pipeline/auto", "POST", payload);
       if (res && res.message) console.log(res.message);
       await refreshState();
+    }
+
+    const LYRICS_TEMPLATE = [
+      "[Verse 1]",
+      "Первая строка задаёт место и время",
+      "Вторая строка — деталь, образ, звук",
+      "Третья строка ведёт к эмоции",
+      "Четвёртая — рифма к первой или третьей",
+      "",
+      "[Pre-Chorus]",
+      "Нагнетание: короткая фраза-вопрос или обещание",
+      "",
+      "[Chorus]",
+      "Главная тема — самая запоминающаяся строка песни",
+      "Повтор припева дважды (ACE-Step любит рефрен)",
+      "Главная тема — самая запоминающаяся строка песни",
+      "",
+      "[Verse 2]",
+      "Развитие истории: новые детали, тот же размер строк",
+      "Строка два",
+      "Строка три",
+      "Строка четыре",
+      "",
+      "[Bridge]",
+      "Смена перспективы или тона — контраст перед финалом",
+      "",
+      "[Chorus]",
+      "Главная тема — самая запоминающаяся строка песни",
+      "Финальный повтор с небольшим изменением"
+    ].join("\n");
+
+    function appendLocalLogLine(msg) {
+      const logEl = document.getElementById("logBox");
+      if (logEl) {
+        logEl.textContent += (logEl.textContent ? "\n" : "") + msg;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    }
+
+    function insertLyricsTemplate() {
+      const ta = document.getElementById("songLyrics");
+      if (ta.value.trim() && !confirm("Заменить текущий текст шаблоном структуры песни?")) return;
+      ta.value = LYRICS_TEMPLATE;
+      saveSongParams();
+      appendLocalLogLine("[ЛИРИКА] Шаблон вставлен: замените служебные строки своими словами, сохраняйте размер и рифму строк внутри секции.");
+    }
+
+    function applyTagExample() {
+      document.getElementById("songPrompt").value = "[synthwave pop, nostalgic and energetic, analog synths and gated drums, 118 bpm, clear female vocal]";
+      saveSongParams();
+      appendLocalLogLine("[ЛИРИКА] Пример тегов применён. Формат: [жанр поджанр, настроение, инструменты, темп BPM, тип вокала]. Укажите свой жанр вместо synthwave.");
     }
 
     async function generateLyrics() {
@@ -1507,12 +1730,54 @@
       await refreshState();
     }
 
+    function updateQueueProgress(qp) {
+      const wrap = document.getElementById("queueProgressWrap");
+      const textEl = document.getElementById("queueProgressText");
+      const barEl = document.getElementById("queueProgressBar");
+      const failedEl = document.getElementById("queueProgressFailed");
+      const cancelBtn = document.getElementById("cancelQueueBtn");
+      if (!wrap || !textEl || !barEl) return;
+
+      if (!qp || !qp.total) {
+        wrap.style.display = "none";
+        if (cancelBtn) cancelBtn.disabled = true;
+        return;
+      }
+
+      wrap.style.display = "flex";
+      const processed = (qp.done || 0) + (qp.failed || 0);
+      const pct = Math.round((processed / qp.total) * 100);
+      barEl.style.width = pct + "%";
+
+      // current может быть строкой вида "Сцена 7/20 (#007)" или статусом завершения
+      textEl.textContent = String(qp.current || `Сцена ${processed}/${qp.total}`);
+
+      const parts = [];
+      if (qp.done) parts.push(`готово ${qp.done}`);
+      if (qp.failed) parts.push(`ошибок ${qp.failed}`);
+      failedEl.textContent = parts.join(", ");
+
+      const finished = qp.current === "завершено" || qp.current === "завершено с ошибками" || qp.current === "остановлено";
+      if (cancelBtn) cancelBtn.disabled = finished;
+    }
+
+    async function cancelQueue() {
+      localLogCleared = false;
+      const btn = document.getElementById("cancelQueueBtn");
+      if (btn) btn.disabled = true;
+      await api("/api/comfy/cancel", "POST", {});
+      appendLocalLogLine("[QUEUE] Отправка запроса на остановку выполнена. Ждём завершения текущей сцены.");
+      await refreshState(false);
+    }
+
     async function queueAllScenes() {
       localLogCleared = false;
       setActivePipelineStage(3);
       setVramGauge(0.88, "21.1 / 24.0 ГБ (Очередь Wan2.2 в ComfyUI)", true);
       const skip = document.getElementById("skipCompletedCheck").checked;
       await api("/api/comfy/queue_all", "POST", { skip_completed: skip });
+      const cancelBtn = document.getElementById("cancelQueueBtn");
+      if (cancelBtn) cancelBtn.disabled = false;
       await refreshState();
     }
 
