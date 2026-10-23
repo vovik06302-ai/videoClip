@@ -2,6 +2,7 @@ import json
 import threading
 import mimetypes
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import List, Dict, Any
@@ -28,6 +29,15 @@ def append_log(msg: str) -> None:
         if len(log_buffer) > 400:
             del log_buffer[: len(log_buffer) - 400]
     print(msg, flush=True)
+    # Дублирование лога в <папка проекта>/logs/ГГГГ-ММ-ДД.txt
+    try:
+        pdir = studio.get_project_dir()
+        if pdir and Path(pdir).exists():
+            logfile = Path(pdir) / "logs" / f"{datetime.now().strftime('%Y-%m-%d')}.txt"
+            with open(logfile, "a", encoding="utf-8") as fh:
+                fh.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass  # запись лога не должна ронять сервер
 
 
 class StudioRequestHandler(BaseHTTPRequestHandler):
@@ -77,6 +87,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "config": studio.config,
                 "state": studio.state,
                 "projects": studio.list_projects(),
+                "project_dir": str(studio.get_project_dir()),          # текущая папка проекта
+                "recent_projects": list(studio.recent_projects()),     # последние 10 проектов
                 "presets": list(STORYBOARD_PRESETS.keys()),
                 "scene_types": SCENE_TYPE_LABELS,
                 "logs": logs_copy
@@ -103,6 +115,22 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             p = Path(file_path)
             if not p.exists() or not p.is_file():
                 self._send_json({"ok": False, "error": "Файл не найден"}, 404)
+                return
+            # Безопасность: отдаём файлы ТОЛЬКО из текущей папки проекта
+            resolved = p.resolve()
+            allowed_roots = [Path(studio.get_project_dir()).resolve()]
+            legacy_root = (BUNDLE_DIR / "projects").resolve()   # совместимость: старые проекты в projects/
+            def _is_relative(child: Path, root: Path) -> bool:
+                try:
+                    return child == root or child.is_relative_to(root)
+                except AttributeError:  # Python < 3.9
+                    try:
+                        child.relative_to(root)
+                        return True
+                    except ValueError:
+                        return False
+            if not any(_is_relative(resolved, root) for root in allowed_roots + [legacy_root]):
+                self._send_json({"ok": False, "error": "Доступ к файлу запрещён (вне папки проекта)"}, 403)
                 return
             mime, _ = mimetypes.guess_type(str(p))
             data = p.read_bytes()
@@ -151,6 +179,39 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 st = studio.open_project(proj_name, log_cb=append_log)
                 self._send_json({"ok": True, "state": st, "projects": studio.list_projects()})
                 return
+
+            # ===== Выбор папки проекта =====
+            if route == "/api/project/pick_folder":
+                path = studio.pick_folder_dialog(log_cb=append_log)
+                if not path:
+                    self._send_json({"ok": True, "path": "", "message": "Выбор отменён"})
+                    return
+                info = studio.set_project_dir(path, log_cb=append_log)
+                self._send_json({"ok": bool(info), "path": str(Path(path).resolve())})
+                return
+
+            if route == "/api/project/create_folder":
+                parent = str(body.get("parent_path", "")).strip()
+                name = str(body.get("name", "")).strip()
+                info = studio.create_project_folder(parent, name, log_cb=append_log)
+                self._send_json({
+                    "ok": bool(info),
+                    "path": str(info.get("project_dir", "")) if info else "",
+                    "state": info,
+                })
+                return
+
+            if route == "/api/project/open_path":
+                # Открытие проекта по полному пути (кнопки «Недавние проекты»)
+                path = str(body.get("path", "")).strip()
+                proj = Path(path).resolve()
+                if not proj.is_dir():
+                    self._send_json({"ok": False, "error": f"Папка не найдена: {proj}"}, 400)
+                    return
+                info = studio.set_project_dir(str(proj), log_cb=append_log)
+                self._send_json({"ok": bool(info), "path": str(proj)})
+                return
+            # ===== /Выбор папки проекта =====
 
             if route == "/api/ace/start":
                 ok = studio.start_ace_server(log_cb=append_log)
@@ -387,7 +448,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     import webbrowser
-    studio.open_project(studio.state["project_name"], log_cb=append_log)
+    # При запуске открываем последний проект (config.json → project_dir);
+    # если папка пропала — open_last_project напишет понятное сообщение в лог.
+    if not studio.open_last_project(log_cb=append_log):
+        studio.open_project(studio.state["project_name"], log_cb=append_log)
     if not studio.state.get("storyboard"):
         studio.generate_storyboard_from_preset("cyber_cat", log_cb=append_log)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), StudioRequestHandler)

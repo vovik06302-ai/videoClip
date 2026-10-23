@@ -786,6 +786,30 @@
             <button class="btn btn-secondary" onclick="openProject()">Открыть проект</button>
           </div>
 
+          <!-- ===== Выбор папки проекта ===== -->
+          <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary" id="btnPickFolder" style="padding: 8px 12px;" onclick="pickProjectFolder()" title="Все файлы программы будут храниться в выбранной папке">📁 Выбрать папку</button>
+            <button class="btn btn-secondary" id="btnNewProjectDir" style="padding: 8px 12px;" onclick="createProjectFolder()" title="Создать подпапку с именем проекта и открыть её">✨ Новая папка проекта</button>
+          </div>
+          <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+            <input type="text" id="projectPathDisplay" readonly placeholder="Папка проекта не выбрана" title="Текущая папка проекта"
+                   style="flex:1; min-width:0; font-size:11px; background: var(--bg-deep, rgba(0,0,0,.2)); color: var(--text-sub);" />
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="copyProjectPath()" title="Скопировать путь">📋</button>
+          </div>
+          <div id="newProjectDirRow" style="display:none; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <input type="text" id="newProjectParent" readonly placeholder="Родительская папка (выберите)" style="flex:1; min-width:140px; font-size:11px;" />
+            <input type="text" id="newProjectName" placeholder="Имя нового проекта" style="flex:1; min-width:120px; font-size:11px;" />
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="pickParentFolder()">📁 Родитель</button>
+            <button class="btn btn-primary" style="padding: 4px 10px; font-size: 12px;" onclick="confirmCreateProjectFolder()">Создать</button>
+          </div>
+          <div style="margin-bottom: 10px;">
+            <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 4px;">Недавние проекты:</div>
+            <div id="recentProjectsList" style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 11px; color: var(--text-muted);">пока пусто</span>
+            </div>
+          </div>
+          <!-- ===== /Выбор папки проекта ===== -->
+
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <button class="btn btn-secondary" style="padding: 8px 12px;" onclick="startAce()">
               <svg class="icon-sm" style="color: var(--emerald-text);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1408,7 +1432,11 @@
         document.getElementById("repoLabel").textContent = `GitHub: ${data.github_repo}`;
       }
 
-      document.getElementById("projectSlugLabel").textContent = `projects/${st.project_name || "default_project"}`;
+      document.getElementById("projectSlugLabel").textContent = st.project_dir || `projects/${st.project_name || "default_project"}`;
+      // Текущая папка проекта + недавние проекты (выбор папки)
+      const pdirEl = document.getElementById("projectPathDisplay");
+      if (pdirEl) pdirEl.value = data.project_dir || st.project_dir || "";
+      renderRecentProjects(data.recent_projects || []);
 
       if (fullFormUpdate) {
         document.getElementById("projectInput").value = st.project_name || "default_project";
@@ -1527,6 +1555,90 @@
       await api("/api/project/open", "POST", { project_name: name });
       await refreshState(true);
     }
+
+    /* ===== Выбор папки проекта ===== */
+    async function pickProjectFolder() {
+      appendLocalLogLine("[PROJECT] Открываю системный диалог выбора папки…");
+      const res = await api("/api/project/pick_folder", "POST", {});
+      if (res.ok && res.path) {
+        appendLocalLogLine(`[PROJECT] Папка проекта выбрана: ${res.path}`);
+        await refreshState(true);
+      } else if (res.ok) {
+        appendLocalLogLine("[PROJECT] Выбор папки отменён — ничего не изменено.");
+      } else {
+        appendLocalLogLine(`[PROJECT ERROR] ${res.error || "не удалось выбрать папку"}`);
+      }
+    }
+
+    function createProjectFolder() {
+      // Показываем строку: родительская папка + имя нового проекта
+      const row = document.getElementById("newProjectDirRow");
+      row.style.display = row.style.display === "none" ? "flex" : "none";
+      if (row.style.display === "flex") {
+        document.getElementById("newProjectName").focus();
+      }
+    }
+
+    async function pickParentFolder() {
+      const res = await api("/api/project/pick_folder", "POST", {});
+      if (res.ok && res.path) {
+        document.getElementById("newProjectParent").value = res.path;
+      } else if (!res.ok) {
+        appendLocalLogLine(`[PROJECT ERROR] ${res.error || "не удалось выбрать родительскую папку"}`);
+      }
+    }
+
+    async function confirmCreateProjectFolder() {
+      const parent = document.getElementById("newProjectParent").value.trim();
+      const name = document.getElementById("newProjectName").value.trim();
+      if (!parent) { appendLocalLogLine("[PROJECT] Сначала выберите родительскую папку (кнопка «📁 Родитель»)."); return; }
+      if (!name)   { appendLocalLogLine("[PROJECT] Введите имя нового проекта."); return; }
+      const res = await api("/api/project/create_folder", "POST", { parent_path: parent, name: name });
+      if (res.ok) {
+        appendLocalLogLine(`[PROJECT] Создана и открыта папка проекта: ${res.path}`);
+        document.getElementById("newProjectDirRow").style.display = "none";
+        await refreshState(true);
+      } else {
+        appendLocalLogLine(`[PROJECT ERROR] ${res.error || "не удалось создать папку проекта"}`);
+      }
+    }
+
+    async function openRecentProject(path) {
+      const res = await api("/api/project/open_path", "POST", { path: path });
+      if (res.ok) {
+        appendLocalLogLine(`[PROJECT] Открыт недавний проект: ${path}`);
+        await refreshState(true);
+      } else {
+        appendLocalLogLine(`[PROJECT ERROR] ${res.error || "папка проекта недоступна"}`);
+      }
+    }
+
+    function copyProjectPath() {
+      const val = document.getElementById("projectPathDisplay").value;
+      if (!val) return;
+      try { navigator.clipboard.writeText(val); appendLocalLogLine("[PROJECT] Путь скопирован в буфер обмена."); }
+      catch (e) { document.getElementById("projectPathDisplay").select(); }
+    }
+
+    function renderRecentProjects(list) {
+      const box = document.getElementById("recentProjectsList");
+      if (!box) return;
+      box.innerHTML = "";
+      if (!list || !list.length) {
+        box.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">пока пусто</span>';
+        return;
+      }
+      list.forEach((p) => {
+        const b = document.createElement("button");
+        b.className = "btn btn-secondary";
+        b.style.cssText = "padding:3px 8px; font-size:11px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+        b.textContent = p.replace(/\\/g, "/").split("/").pop() || p;
+        b.title = p;
+        b.onclick = () => openRecentProject(p);
+        box.appendChild(b);
+      });
+    }
+    /* ===== /Выбор папки проекта ===== */
 
     async function startAce() {
       localLogCleared = false;
@@ -1908,8 +2020,10 @@
     // tab: "main" — прокрутка к элементу; "settings" — сначала вкладка «Настройки и VRAM».
     // target: CSS-селектор реального элемента интерфейса.
     const TOUR_STEPS = [
+      { tab: "main",     target: "#btnPickFolder",       title: "Выберите папку проекта",
+        text: "Нажмите «📁 Выбрать папку» — все файлы клипа (музыка, клипы, картинки, логи) будут храниться только внутри неё. Кнопка «✨ Новая папка проекта» создаст чистую папку с заданным именем." },
       { tab: "main",     target: "#projectInput",        title: "Открыть проект",
-        text: "Введите имя папки проекта и нажмите «Открыть проект». Все файлы клипа будут храниться в projects/<имя>." },
+        text: "Можно также открыть старый проект по имени из папки projects/ — введите имя и нажмите «Открыть проект»." },
       { tab: "main",     target: "autoPipelineBtn",      title: "Быстрый старт (по желанию)",
         text: "Есть текст песни и фото героя? Нажмите «🚀 Сделать клип автоматически» — весь конвейер пройдёт сам. Дальше идём по шагам для ручного контроля." },
       { tab: "main",     target: "startAceBtn",          title: "Запустить ACE API",
