@@ -388,6 +388,16 @@ class StudioCore:
         if chosen and (safe == Path(chosen).name or (Path(raw).is_absolute() and Path(raw).resolve() == Path(chosen).resolve())):
             proj_dir = Path(chosen).resolve()
             self._ensure_subdirs(proj_dir)
+        elif Path(raw).is_absolute():
+            # Открытие проекта по полному пути (например, из списка недавних):
+            # запоминаем его как текущий корень проекта и добавляем в недавние.
+            proj_dir = Path(raw).resolve()
+            if not proj_dir.is_dir():
+                raise ValueError(f"Папка проекта не найдена: {proj_dir}")
+            self.config["project_dir"] = str(proj_dir)
+            self._add_recent_project(str(proj_dir))
+            self.save_config()
+            self._ensure_subdirs(proj_dir)
         else:
             proj_dir = self.get_project_dir(project_name)
         self.state["project_name"] = proj_dir.name
