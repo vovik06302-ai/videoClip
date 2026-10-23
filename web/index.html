@@ -680,9 +680,16 @@
     }
     #tourCard .tour-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
     #tourCard .tour-hint { color: var(--text-dim); font-size: 11px; margin-right: auto; align-self: center; }
+    /* Кнопка тура в верхней панели: всегда видна, не обрезается flex-раскладкой header */
+    #tourBtn { flex-shrink: 0; white-space: nowrap; }
+    @media (max-width: 900px) {
+      header { flex-wrap: wrap; gap: 10px; }
+      .nav-tabs { order: 3; width: 100%; justify-content: flex-start; overflow-x: auto; }
+    }
     @media (max-width: 640px) {
       #tourCard { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; padding: 12px; }
       #tourCard .tour-actions .btn { padding: 6px 10px; font-size: 12px; }
+      #tourCard .tour-hint { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {
       #tourSpotlight {
@@ -2065,6 +2072,41 @@
     let tourTargetEl = null;
     let tourSeenKey = "tour_seen";
 
+    // Самовосстановление: если кнопка или разметка тура пропали (правка файла/старый кэш),
+    // вставляем их заново перед запуском — тур не зависит от целостности HTML.
+    function ensureTourUi() {
+      const hdr = document.querySelector("header");
+      if (hdr && !document.getElementById("tourBtn")) {
+        const holder = document.createElement("div");
+        holder.innerHTML = '<button id="tourBtn" class="btn btn-secondary" onclick="startTour()" title="Пошаговая инструкция для новичка">📖 Инструкция</button>';
+        const b = holder.firstElementChild;
+        const gpuBtn = hdr.querySelector('button[onclick="checkGpu()"]');
+        if (gpuBtn && gpuBtn.parentElement) gpuBtn.parentElement.insertBefore(b, gpuBtn);
+        else hdr.appendChild(b);
+      }
+      if (!document.getElementById("tourOverlayDim")) {
+        const d = document.createElement("div");
+        d.innerHTML = `
+  <div id="tourOverlayDim" aria-hidden="true"></div>
+  <div id="tourSpotlight" aria-hidden="true"></div>
+  <div id="tourCard" role="dialog" aria-modal="false" aria-label="Интерактивная инструкция">
+    <div class="tour-head">
+      <span class="tour-step-label" id="tourStepLabel">Шаг 1 из 1</span>
+      <span class="tour-title" id="tourTitle"></span>
+    </div>
+    <div class="tour-text" id="tourText"></div>
+    <div class="tour-progress-track"><div class="tour-progress-fill" id="tourProgressFill"></div></div>
+    <div class="tour-actions">
+      <span class="tour-hint">← → переключение, Esc закрыть. Можно нажать подсвеченную кнопку по-настоящему — тур продолжит сам.</span>
+      <button class="btn btn-secondary" id="tourBackBtn" onclick="tourPrev()">Назад</button>
+      <button class="btn btn-secondary" onclick="endTour()">Пропустить</button>
+      <button class="btn btn-primary" id="tourNextBtn" onclick="tourNext()">Далее</button>
+    </div>
+  </div>`;
+        while (d.firstElementChild) document.body.appendChild(d.firstElementChild);
+      }
+    }
+
     function tourScrollToSettingsTab() {
       // Вкладки реализованы как кнопки навигации со скроллом: переключаем на «Настройки и VRAM»
       const tabs = document.querySelectorAll("header .nav-tab");
@@ -2148,6 +2190,7 @@
     }
 
     function startTour(fromIdx) {
+      ensureTourUi();
       tourActive = true;
       document.body.classList.add("tour-active");
       tourShowStep(typeof fromIdx === "number" ? fromIdx : 0);
@@ -2193,10 +2236,13 @@
     window.addEventListener("resize", () => { if (tourActive) tourPositionSpotlight(tourTargetEl); });
     window.addEventListener("scroll", () => { if (tourActive) tourPositionSpotlight(tourTargetEl); }, true);
 
-    // Автопоказ при самом первом запуске
-    if (!(() => { try { return localStorage.getItem(tourSeenKey); } catch (e) { return "1"; } })()) {
-      setTimeout(() => startTour(0), 800);
-    }
+    // Кнопка и разметка тура существуют сразу при загрузке страницы
+    try { ensureTourUi(); } catch (e) { console.warn("[TOUR] ensureTourUi:", e); }
+
+    // Автопоказ при самом первом запуске (ошибки не должны ронять остальной скрипт)
+    try {
+      if (!localStorage.getItem(tourSeenKey)) setTimeout(() => startTour(0), 800);
+    } catch (e) { console.warn("[TOUR] localStorage недоступен, автопоказ пропущен:", e); }
     /* ===== /ТУР-ИНСТРУКЦИЯ ===== */
 
     refreshState(true).then(() => checkUpdates());
